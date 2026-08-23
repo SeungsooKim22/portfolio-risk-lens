@@ -29,13 +29,13 @@ const labels = {
     sample: "샘플 불러오기",
     save: "이미지 저장",
     share: "바로 공유",
-    story: "스토리 카드",
+    story: "공유 카드",
     score: "리스크 점수",
     style: "투자 성향",
-    mainRisk: "핵심 리스크",
-    top3: "상위 3개",
-    largest: "최대 보유",
-    vol: "예상 변동성",
+    mainRisk: "가장 눈에 띄는 위험",
+    top3: "주요 보유 비중",
+    largest: "가장 큰 비중",
+    vol: "흔들림 예상",
     assets: "자산 구성",
     sectors: "섹터 노출",
     regions: "지역 노출",
@@ -44,7 +44,7 @@ const labels = {
     details: "상세 분석",
     notice: "교육용 간이 추정치입니다. 투자 조언이 아닙니다.",
     placeholder: "예: AAPL 25%",
-    unmatched: "분류 안 된 종목은 보수적인 기본값으로 추정합니다.",
+    unmatched: "아직 모르는 종목은 임시값으로 계산해요. 종목 데이터가 늘어날수록 더 정확해집니다.",
     noShare: "이 브라우저에서는 이미지 저장으로 공유해주세요.",
   },
   en: {
@@ -113,7 +113,7 @@ const translations: Record<string, string> = {
   Rates: "금리",
   Gold: "금",
   "Digital Assets": "디지털 자산",
-  Unknown: "미분류",
+  Unknown: "정보 부족",
   "United States": "미국",
   International: "해외",
   Global: "글로벌",
@@ -166,6 +166,59 @@ function fmt(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
+function isUnknownLabel(label: string) {
+  return ["Unknown", "미분류", "정보 부족", "Unclassified Equity", "미분류 주식"].includes(label);
+}
+
+function getTone(score: number) {
+  if (score >= 75) {
+    return {
+      page: "#eef8ef",
+      ink: "#10231f",
+      card: "#0d3b2e",
+      cardSoft: "#15533f",
+      accent: "#37d67a",
+      accentSoft: "#bff3d2",
+      stat: "#f6fff8",
+      warning: "#ffb199",
+    };
+  }
+  if (score >= 55) {
+    return {
+      page: "#fff7df",
+      ink: "#2b2411",
+      card: "#493a10",
+      cardSoft: "#66501a",
+      accent: "#f5ca45",
+      accentSoft: "#ffec9f",
+      stat: "#fffaf0",
+      warning: "#ffad72",
+    };
+  }
+  if (score >= 35) {
+    return {
+      page: "#fff0e5",
+      ink: "#2f1d12",
+      card: "#552a16",
+      cardSoft: "#74391e",
+      accent: "#f27a36",
+      accentSoft: "#ffd0b2",
+      stat: "#fff7f1",
+      warning: "#ffb199",
+    };
+  }
+  return {
+    page: "#fff0f0",
+    ink: "#2f1515",
+    card: "#551d1d",
+    cardSoft: "#733030",
+    accent: "#ec4e4e",
+    accentSoft: "#ffc5c5",
+    stat: "#fff6f6",
+    warning: "#ffb199",
+  };
+}
+
 function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
   const words = text.split(" ");
   let line = "";
@@ -200,7 +253,15 @@ export default function Home() {
   const concentrationScore = Math.min(100, topThree * 0.8 + (topHolding?.weight || 0) * 0.6);
   const riskScore = Math.round(Math.min(100, volatility * 1.55 + concentrationScore * 0.45));
   const style = getStyle(riskScore, lang);
-  const mainRisk = sectors[0]?.[1] > 45 ? sectors[0][0] : topHolding?.weight > 26 ? topHolding.ticker : lang === "ko" ? "시장 전체 하락" : "Broad market drawdown";
+  const tone = getTone(riskScore);
+  const knownSectors = sectors.filter(([label]) => !isUnknownLabel(label));
+  const unknownWeight = sectors.find(([label]) => isUnknownLabel(label))?.[1] ?? 0;
+  const mainRisk = getMainRisk({
+    lang,
+    topHolding,
+    topSector: knownSectors[0],
+    unknownWeight,
+  });
   const scenarios = [
     [lang === "ko" ? "나스닥 -20%" : "Nasdaq -20%", weighted(normalized, (item) => item.stress.techSelloff)],
     [lang === "ko" ? "금리 +1%" : "Rates +1%", weighted(normalized, (item) => item.stress.rateShock)],
@@ -209,7 +270,11 @@ export default function Home() {
   ] as const;
 
   const insights = [
-    topHolding && topHolding.weight > 25
+    unknownWeight > 35
+      ? lang === "ko"
+        ? `입력한 종목 중 ${fmt(unknownWeight)}는 아직 데이터가 부족해요.`
+        : `${fmt(unknownWeight)} of the portfolio uses fallback classifications.`
+      : topHolding && topHolding.weight > 25
       ? lang === "ko"
         ? `${topHolding.ticker} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
         : `${topHolding.ticker} alone drives ${fmt(topHolding.weight)} of the portfolio.`
@@ -241,11 +306,11 @@ export default function Home() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    ctx.fillStyle = "#fbf5ea";
+    ctx.fillStyle = tone.page;
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "#10231f";
+    ctx.fillStyle = tone.card;
     ctx.fillRect(56, 56, width - 112, height - 112);
-    ctx.fillStyle = "#f2b84b";
+    ctx.fillStyle = tone.accent;
     ctx.fillRect(56, 56, width - 112, 18);
     ctx.fillStyle = "#f8f4ea";
     ctx.font = "800 42px Arial";
@@ -253,15 +318,15 @@ export default function Home() {
     ctx.font = "700 100px Arial";
     ctx.fillText(`${riskScore}`, 104, 330);
     ctx.font = "800 42px Arial";
-    ctx.fillStyle = "#f2b84b";
+    ctx.fillStyle = tone.accent;
     ctx.fillText(`/100 ${t.score}`, 325, 330);
     ctx.fillStyle = "#f8f4ea";
     ctx.font = "800 78px Arial";
     wrapText(ctx, style, 104, 455, 820, 86);
 
-    ctx.fillStyle = "#183b34";
+    ctx.fillStyle = tone.cardSoft;
     ctx.fillRect(104, 680, 872, 230);
-    ctx.fillStyle = "#95d5b2";
+    ctx.fillStyle = tone.accentSoft;
     ctx.font = "800 32px Arial";
     ctx.fillText(t.mainRisk, 148, 755);
     ctx.fillStyle = "#ffffff";
@@ -275,9 +340,9 @@ export default function Home() {
       [t.vol, fmt(volatility)],
     ].forEach(([label, value], index) => {
       const x = 104 + index * 296;
-      ctx.fillStyle = "#f8f4ea";
+      ctx.fillStyle = tone.stat;
       ctx.fillRect(x, statY, 252, 170);
-      ctx.fillStyle = "#10231f";
+      ctx.fillStyle = tone.ink;
       ctx.font = "700 28px Arial";
       ctx.fillText(label, x + 24, statY + 55);
       ctx.font = "800 38px Arial";
@@ -292,7 +357,7 @@ export default function Home() {
       const y = 1400 + index * 96;
       ctx.fillStyle = "#c9d8d1";
       ctx.fillText(label, 104, y);
-      ctx.fillStyle = value < 0 ? "#ff9f7d" : "#95d5b2";
+      ctx.fillStyle = value < 0 ? tone.warning : tone.accentSoft;
       ctx.fillText(`${value > 0 ? "+" : ""}${fmt(value)}`, 770, y);
     });
 
@@ -326,7 +391,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#fbf5ea] text-[#10231f]">
+    <main className="min-h-screen text-[#10231f]" style={{ backgroundColor: tone.page }}>
       <section className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8">
         <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
           <header className="flex items-center justify-between gap-3">
@@ -375,8 +440,9 @@ export default function Home() {
               topHolding={topHolding}
               volatility={volatility}
               scenarios={scenarios}
+              tone={tone}
             />
-            <section className="rounded-lg bg-[#10231f] p-5 text-white shadow-xl">
+            <section className="rounded-lg p-5 text-white shadow-xl" style={{ backgroundColor: tone.card }}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.16em] text-[#95d5b2]">{t.score}</p>
@@ -384,11 +450,11 @@ export default function Home() {
                 </div>
                 <div className="rounded-md bg-white/10 px-4 py-3 text-right">
                   <p className="text-xs text-[#c9d8d1]">{t.style}</p>
-                  <p className="max-w-56 text-xl font-black text-[#f2b84b]">{style}</p>
+                  <p className="max-w-56 text-xl font-black" style={{ color: tone.accent }}>{style}</p>
                 </div>
               </div>
               <div className="mt-5 h-4 rounded-full bg-white/10">
-                <div className="h-4 rounded-full bg-[#f2b84b]" style={{ width: `${riskScore}%` }} />
+                <div className="h-4 rounded-full" style={{ width: `${riskScore}%`, backgroundColor: tone.accent }} />
               </div>
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <Metric label={t.top3} value={fmt(topThree)} />
@@ -441,10 +507,33 @@ export default function Home() {
 }
 
 function getStyle(score: number, lang: Lang) {
-  if (score >= 78) return lang === "ko" ? "공격적인 성장형" : "Aggressive growth";
-  if (score >= 58) return lang === "ko" ? "성장 쏠림형" : "Growth tilted";
-  if (score >= 38) return lang === "ko" ? "균형 추구형" : "Balanced risk";
-  return lang === "ko" ? "방어적인 안정형" : "Defensive";
+  if (score >= 78) return lang === "ko" ? "초록불 성장러" : "Green-light growth";
+  if (score >= 58) return lang === "ko" ? "노란불 성장형" : "Yellow-light growth";
+  if (score >= 38) return lang === "ko" ? "주황불 점검형" : "Orange-light watchlist";
+  return lang === "ko" ? "빨간불 방어 필요" : "Red-light defensive";
+}
+
+function getMainRisk({
+  lang,
+  topHolding,
+  topSector,
+  unknownWeight,
+}: {
+  lang: Lang;
+  topHolding: Holding | null;
+  topSector?: [string, number];
+  unknownWeight: number;
+}) {
+  if (topSector && topSector[1] > 45) {
+    return lang === "ko" ? `${topSector[0]} 쏠림` : `${topSector[0]} concentration`;
+  }
+  if (topHolding && topHolding.weight > 26) {
+    return lang === "ko" ? `${topHolding.ticker} 비중 과다` : `${topHolding.ticker} concentration`;
+  }
+  if (unknownWeight > 35) {
+    return lang === "ko" ? "종목 정보 부족" : "Limited ticker data";
+  }
+  return lang === "ko" ? "하락장 민감도" : "Market drawdown sensitivity";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -465,6 +554,7 @@ function StoryCard({
   topHolding,
   volatility,
   scenarios,
+  tone,
 }: {
   t: (typeof labels)[Lang];
   riskScore: number;
@@ -474,29 +564,30 @@ function StoryCard({
   topHolding: Holding | null;
   volatility: number;
   scenarios: readonly (readonly [string, number])[];
+  tone: ReturnType<typeof getTone>;
 }) {
   return (
-    <section className="mx-auto w-full max-w-[390px] rounded-lg bg-[#10231f] p-5 text-white shadow-xl">
-      <div className="aspect-[9/16] rounded-md border border-white/10 bg-[#10231f] p-6">
-        <div className="h-1.5 w-full rounded-full bg-[#f2b84b]" />
-        <p className="mt-8 text-sm font-black uppercase tracking-[0.16em] text-[#95d5b2]">{t.story}</p>
+    <section className="mx-auto w-full max-w-[390px] rounded-lg p-5 text-white shadow-xl" style={{ backgroundColor: tone.card }}>
+      <div className="aspect-[9/16] rounded-md border border-white/10 p-6" style={{ backgroundColor: tone.card }}>
+        <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: tone.accent }} />
+        <p className="mt-8 text-sm font-black uppercase tracking-[0.16em]" style={{ color: tone.accentSoft }}>{t.story}</p>
         <p className="mt-5 text-7xl font-black tracking-normal text-[#f8f4ea]">{riskScore}</p>
-        <p className="text-2xl font-black text-[#f2b84b]">/100 {t.score}</p>
+        <p className="text-2xl font-black" style={{ color: tone.accent }}>/100 {t.score}</p>
         <h2 className="mt-8 text-4xl font-black leading-tight text-[#f8f4ea]">{style}</h2>
-        <div className="mt-8 rounded-md bg-white/10 p-4">
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-[#95d5b2]">{t.mainRisk}</p>
+        <div className="mt-8 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
+          <p className="text-xs font-black uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.mainRisk}</p>
           <p className="mt-2 break-words text-2xl font-black">{mainRisk}</p>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2 text-[#10231f]">
-          <SmallStat label={t.top3} value={fmt(topThree)} />
-          <SmallStat label={t.largest} value={topHolding ? topHolding.ticker : "-"} />
-          <SmallStat label={t.vol} value={fmt(volatility)} />
+          <SmallStat label={t.top3} value={fmt(topThree)} tone={tone} />
+          <SmallStat label={t.largest} value={topHolding ? topHolding.ticker : "-"} tone={tone} />
+          <SmallStat label={t.vol} value={fmt(volatility)} tone={tone} />
         </div>
         <div className="mt-7 space-y-3">
           {scenarios.slice(0, 3).map(([label, value]) => (
             <div key={label} className="flex justify-between gap-3 text-sm font-black">
               <span className="text-[#c9d8d1]">{label}</span>
-              <span className={value < 0 ? "text-[#ff9f7d]" : "text-[#95d5b2]"}>{value > 0 ? "+" : ""}{fmt(value)}</span>
+              <span style={{ color: value < 0 ? tone.warning : tone.accentSoft }}>{value > 0 ? "+" : ""}{fmt(value)}</span>
             </div>
           ))}
         </div>
@@ -506,9 +597,9 @@ function StoryCard({
   );
 }
 
-function SmallStat({ label, value }: { label: string; value: string }) {
+function SmallStat({ label, value, tone }: { label: string; value: string; tone: ReturnType<typeof getTone> }) {
   return (
-    <div className="rounded-md bg-[#f8f4ea] p-3">
+    <div className="rounded-md p-3" style={{ backgroundColor: tone.stat }}>
       <p className="text-[10px] font-bold text-[#60716b]">{label}</p>
       <p className="mt-1 break-words text-sm font-black">{value}</p>
     </div>
