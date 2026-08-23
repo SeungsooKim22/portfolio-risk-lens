@@ -36,6 +36,8 @@ yarn-error.log*
 .vercel
 
 /dist/
+/.site-package-stage/
+/portfolio-risk-lens-site.tar.gz
 /.wrangler/
 /outputs/
 /work/

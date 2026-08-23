@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+
+type Lang = "ko" | "en";
 
 type Holding = {
   ticker: string;
@@ -16,6 +18,61 @@ type Holding = {
     recession: number;
     dollarDrop: number;
   };
+};
+
+const labels = {
+  ko: {
+    brand: "포트폴리오 리스크 렌즈",
+    headline: "내 포트폴리오 성향을 한 장으로 보여주세요.",
+    subhead: "종목과 비중을 넣으면 집중도, 섹터 쏠림, 위기 시나리오를 보기 쉬운 공유 카드와 상세 분석으로 정리합니다.",
+    input: "포트폴리오 입력",
+    sample: "샘플 불러오기",
+    save: "이미지 저장",
+    share: "바로 공유",
+    story: "스토리 카드",
+    score: "리스크 점수",
+    style: "투자 성향",
+    mainRisk: "핵심 리스크",
+    top3: "상위 3개",
+    largest: "최대 보유",
+    vol: "예상 변동성",
+    assets: "자산 구성",
+    sectors: "섹터 노출",
+    regions: "지역 노출",
+    scenarios: "시장 충격 테스트",
+    readout: "쉬운 해석",
+    details: "상세 분석",
+    notice: "교육용 간이 추정치입니다. 투자 조언이 아닙니다.",
+    placeholder: "예: AAPL 25%",
+    unmatched: "분류 안 된 종목은 보수적인 기본값으로 추정합니다.",
+    noShare: "이 브라우저에서는 이미지 저장으로 공유해주세요.",
+  },
+  en: {
+    brand: "Portfolio Risk Lens",
+    headline: "Turn your allocation into a shareable risk snapshot.",
+    subhead: "Enter tickers and weights to see concentration, exposures, stress scenarios, and a clean visual card.",
+    input: "Portfolio input",
+    sample: "Load sample",
+    save: "Save image",
+    share: "Share",
+    story: "Story card",
+    score: "Risk score",
+    style: "Investor style",
+    mainRisk: "Main risk",
+    top3: "Top 3",
+    largest: "Largest holding",
+    vol: "Estimated volatility",
+    assets: "Asset mix",
+    sectors: "Sector exposure",
+    regions: "Regional exposure",
+    scenarios: "Stress tests",
+    readout: "Plain-English readout",
+    details: "Detailed view",
+    notice: "Educational estimate only. Not financial advice.",
+    placeholder: "Example: AAPL 25%",
+    unmatched: "Unclassified tickers use conservative default estimates.",
+    noShare: "This browser cannot share files directly. Please save the image.",
+  },
 };
 
 const library: Record<string, Omit<Holding, "ticker" | "weight">> = {
@@ -38,7 +95,36 @@ const library: Record<string, Omit<Holding, "ticker" | "weight">> = {
   CASH: { name: "Cash", asset: "Cash", sector: "Cash", region: "Local", volatility: 1, stress: { techSelloff: 0, rateShock: 1, recession: 0, dollarDrop: -2 } },
 };
 
+const translations: Record<string, string> = {
+  "US Equity": "미국 주식",
+  "US Equity ETF": "미국 주식 ETF",
+  "Global Equity ETF": "글로벌 주식 ETF",
+  "Long Bonds": "장기채",
+  Bonds: "채권",
+  Commodity: "원자재",
+  Crypto: "가상자산",
+  Cash: "현금",
+  "Unclassified Equity": "미분류 주식",
+  Technology: "기술",
+  "Consumer Discretionary": "경기소비재",
+  "Communication Services": "커뮤니케이션",
+  "Broad Market": "광범위 시장",
+  "Technology Tilt": "기술주 중심",
+  Rates: "금리",
+  Gold: "금",
+  "Digital Assets": "디지털 자산",
+  Unknown: "미분류",
+  "United States": "미국",
+  International: "해외",
+  Global: "글로벌",
+  Local: "현지",
+};
+
 const sampleInput = "AAPL 25%\nMSFT 20%\nNVDA 20%\nSPY 20%\nTLT 10%\nGLD 5%";
+
+function localize(label: string, lang: Lang) {
+  return lang === "ko" ? translations[label] ?? label : label;
+}
 
 function parsePortfolio(value: string): Holding[] {
   return value
@@ -62,9 +148,10 @@ function parsePortfolio(value: string): Holding[] {
     .filter((item) => item.ticker && item.weight > 0);
 }
 
-function groupBy(items: Holding[], key: keyof Pick<Holding, "asset" | "sector" | "region">) {
+function groupBy(items: Holding[], key: keyof Pick<Holding, "asset" | "sector" | "region">, lang: Lang) {
   const grouped = items.reduce<Record<string, number>>((acc, item) => {
-    acc[item[key]] = (acc[item[key]] || 0) + item.weight;
+    const label = localize(item[key], lang);
+    acc[label] = (acc[label] || 0) + item.weight;
     return acc;
   }, {});
   return Object.entries(grouped).sort((a, b) => b[1] - a[1]);
@@ -79,167 +166,255 @@ function fmt(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
+function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
+  const words = text.split(" ");
+  let line = "";
+  words.forEach((word) => {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      ctx.fillText(line, x, y);
+      y += lineHeight;
+      line = word;
+    } else {
+      line = next;
+    }
+  });
+  if (line) ctx.fillText(line, x, y);
+}
+
 export default function Home() {
   const [input, setInput] = useState(sampleInput);
-  const reportRef = useRef<HTMLDivElement>(null);
+  const [lang, setLang] = useState<Lang>("ko");
+  const t = labels[lang];
 
   const holdings = useMemo(() => parsePortfolio(input), [input]);
   const totalWeight = holdings.reduce((sum, item) => sum + item.weight, 0);
   const normalized = holdings.map((item) => ({ ...item, weight: (item.weight / (totalWeight || 1)) * 100 }));
-  const sectors = groupBy(normalized, "sector");
-  const assets = groupBy(normalized, "asset");
-  const regions = groupBy(normalized, "region");
-  const topHolding = normalized[0] ? [...normalized].sort((a, b) => b.weight - a.weight)[0] : null;
-  const topThree = [...normalized].sort((a, b) => b.weight - a.weight).slice(0, 3).reduce((sum, item) => sum + item.weight, 0);
+  const sectors = groupBy(normalized, "sector", lang);
+  const assets = groupBy(normalized, "asset", lang);
+  const regions = groupBy(normalized, "region", lang);
+  const sorted = [...normalized].sort((a, b) => b.weight - a.weight);
+  const topHolding = sorted[0] ?? null;
+  const topThree = sorted.slice(0, 3).reduce((sum, item) => sum + item.weight, 0);
   const volatility = weighted(normalized, (item) => item.volatility);
   const concentrationScore = Math.min(100, topThree * 0.8 + (topHolding?.weight || 0) * 0.6);
   const riskScore = Math.round(Math.min(100, volatility * 1.55 + concentrationScore * 0.45));
+  const style = getStyle(riskScore, lang);
+  const mainRisk = sectors[0]?.[1] > 45 ? sectors[0][0] : topHolding?.weight > 26 ? topHolding.ticker : lang === "ko" ? "시장 전체 하락" : "Broad market drawdown";
   const scenarios = [
-    ["Nasdaq -20%", weighted(normalized, (item) => item.stress.techSelloff)],
-    ["Rates +1%", weighted(normalized, (item) => item.stress.rateShock)],
-    ["Recession", weighted(normalized, (item) => item.stress.recession)],
-    ["USD weakness", weighted(normalized, (item) => item.stress.dollarDrop)],
+    [lang === "ko" ? "나스닥 -20%" : "Nasdaq -20%", weighted(normalized, (item) => item.stress.techSelloff)],
+    [lang === "ko" ? "금리 +1%" : "Rates +1%", weighted(normalized, (item) => item.stress.rateShock)],
+    [lang === "ko" ? "경기침체" : "Recession", weighted(normalized, (item) => item.stress.recession)],
+    [lang === "ko" ? "달러 약세" : "USD weakness", weighted(normalized, (item) => item.stress.dollarDrop)],
   ] as const;
 
   const insights = [
-    topHolding && topHolding.weight > 25 ? `${topHolding.ticker} alone drives ${fmt(topHolding.weight)} of the portfolio.` : "Single-name concentration is controlled.",
-    sectors[0] && sectors[0][1] > 45 ? `${sectors[0][0]} exposure is high at ${fmt(sectors[0][1])}.` : "Sector exposure is reasonably balanced.",
-    regions[0] && regions[0][1] > 80 ? `${regions[0][0]} dominates regional exposure.` : "Regional exposure adds some diversification.",
-  ].filter(Boolean);
+    topHolding && topHolding.weight > 25
+      ? lang === "ko"
+        ? `${topHolding.ticker} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
+        : `${topHolding.ticker} alone drives ${fmt(topHolding.weight)} of the portfolio.`
+      : lang === "ko"
+        ? "단일 종목 집중도는 비교적 안정적이에요."
+        : "Single-name concentration is controlled.",
+    sectors[0] && sectors[0][1] > 45
+      ? lang === "ko"
+        ? `${sectors[0][0]} 노출이 ${fmt(sectors[0][1])}로 높은 편이에요.`
+        : `${sectors[0][0]} exposure is high at ${fmt(sectors[0][1])}.`
+      : lang === "ko"
+        ? "섹터 쏠림은 과하지 않은 편이에요."
+        : "Sector exposure is reasonably balanced.",
+    regions[0] && regions[0][1] > 80
+      ? lang === "ko"
+        ? `${regions[0][0]} 중심 포트폴리오라 지역 분산은 약해요.`
+        : `${regions[0][0]} dominates regional exposure.`
+      : lang === "ko"
+        ? "지역 분산이 어느 정도 들어가 있어요."
+        : "Regional exposure adds some diversification.",
+  ];
 
-  function downloadCard() {
+  function drawCard() {
     const canvas = document.createElement("canvas");
-    const width = 1400;
-    const height = 1000;
+    const width = 1080;
+    const height = 1920;
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return null;
 
-    ctx.fillStyle = "#f6f3ec";
+    ctx.fillStyle = "#fbf5ea";
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = "#10231f";
     ctx.fillRect(56, 56, width - 112, height - 112);
-    ctx.fillStyle = "#f8f4ea";
-    ctx.font = "700 64px Arial";
-    ctx.fillText("Portfolio Risk Lens", 110, 150);
-    ctx.font = "400 30px Arial";
-    ctx.fillStyle = "#c9d8d1";
-    ctx.fillText("A plain-language risk snapshot from your allocation", 110, 200);
     ctx.fillStyle = "#f2b84b";
-    ctx.font = "700 96px Arial";
-    ctx.fillText(`${riskScore}/100`, 110, 330);
+    ctx.fillRect(56, 56, width - 112, 18);
     ctx.fillStyle = "#f8f4ea";
-    ctx.font = "700 34px Arial";
-    ctx.fillText("Risk score", 110, 380);
+    ctx.font = "800 42px Arial";
+    ctx.fillText(t.brand, 104, 150);
+    ctx.font = "700 100px Arial";
+    ctx.fillText(`${riskScore}`, 104, 330);
+    ctx.font = "800 42px Arial";
+    ctx.fillStyle = "#f2b84b";
+    ctx.fillText(`/100 ${t.score}`, 325, 330);
+    ctx.fillStyle = "#f8f4ea";
+    ctx.font = "800 78px Arial";
+    wrapText(ctx, style, 104, 455, 820, 86);
 
-    ctx.font = "700 32px Arial";
-    ctx.fillText("Top exposures", 560, 300);
-    ctx.font = "400 28px Arial";
-    assets.slice(0, 4).forEach(([label, value], index) => {
+    ctx.fillStyle = "#183b34";
+    ctx.fillRect(104, 680, 872, 230);
+    ctx.fillStyle = "#95d5b2";
+    ctx.font = "800 32px Arial";
+    ctx.fillText(t.mainRisk, 148, 755);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 60px Arial";
+    wrapText(ctx, mainRisk, 148, 835, 760, 66);
+
+    const statY = 1035;
+    [
+      [t.top3, fmt(topThree)],
+      [t.largest, topHolding ? `${topHolding.ticker} ${fmt(topHolding.weight)}` : "-"],
+      [t.vol, fmt(volatility)],
+    ].forEach(([label, value], index) => {
+      const x = 104 + index * 296;
       ctx.fillStyle = "#f8f4ea";
-      ctx.fillText(`${label}: ${fmt(value)}`, 560, 350 + index * 45);
-    });
-
-    ctx.font = "700 32px Arial";
-    ctx.fillText("Stress scenarios", 110, 520);
-    ctx.font = "400 28px Arial";
-    scenarios.forEach(([label, value], index) => {
-      ctx.fillStyle = value < 0 ? "#ff9f7d" : "#95d5b2";
-      ctx.fillText(`${label}: ${value > 0 ? "+" : ""}${fmt(value)}`, 110, 570 + index * 45);
+      ctx.fillRect(x, statY, 252, 170);
+      ctx.fillStyle = "#10231f";
+      ctx.font = "700 28px Arial";
+      ctx.fillText(label, x + 24, statY + 55);
+      ctx.font = "800 38px Arial";
+      wrapText(ctx, value, x + 24, statY + 112, 205, 44);
     });
 
     ctx.fillStyle = "#f8f4ea";
-    ctx.font = "700 32px Arial";
-    ctx.fillText("Main notes", 720, 520);
-    ctx.font = "400 26px Arial";
-    insights.forEach((text, index) => ctx.fillText(text, 720, 570 + index * 50));
-    ctx.fillStyle = "#c9d8d1";
-    ctx.font = "400 22px Arial";
-    ctx.fillText("Educational estimate only. Not financial advice.", 110, 890);
+    ctx.font = "800 34px Arial";
+    ctx.fillText(t.scenarios, 104, 1320);
+    ctx.font = "700 34px Arial";
+    scenarios.slice(0, 3).forEach(([label, value], index) => {
+      const y = 1400 + index * 96;
+      ctx.fillStyle = "#c9d8d1";
+      ctx.fillText(label, 104, y);
+      ctx.fillStyle = value < 0 ? "#ff9f7d" : "#95d5b2";
+      ctx.fillText(`${value > 0 ? "+" : ""}${fmt(value)}`, 770, y);
+    });
 
+    ctx.fillStyle = "#c9d8d1";
+    ctx.font = "400 26px Arial";
+    wrapText(ctx, t.notice, 104, 1760, 820, 34);
+    return canvas;
+  }
+
+  function saveImage() {
+    const canvas = drawCard();
+    if (!canvas) return;
     const link = document.createElement("a");
-    link.download = "portfolio-risk-lens.png";
+    link.download = lang === "ko" ? "portfolio-risk-story.png" : "portfolio-risk-card.png";
     link.href = canvas.toDataURL("image/png");
     link.click();
   }
 
+  async function shareImage() {
+    const canvas = drawCard();
+    if (!canvas) return;
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "portfolio-risk-lens.png", { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title: t.brand, text: style, files: [file] });
+      } else {
+        alert(t.noShare);
+      }
+    });
+  }
+
   return (
-    <main className="min-h-screen bg-[#f6f3ec] text-[#10231f]">
-      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-5 py-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
-        <div className="flex flex-col justify-between gap-8 py-4">
-          <div>
-            <div className="mb-8 flex items-center gap-3">
+    <main className="min-h-screen bg-[#fbf5ea] text-[#10231f]">
+      <section className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8">
+        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
+          <header className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-md bg-[#10231f] text-lg font-black text-[#f2b84b]">R</div>
-              <span className="text-sm font-bold uppercase tracking-[0.14em] text-[#42665c]">Portfolio Risk Lens</span>
+              <span className="text-sm font-black uppercase tracking-[0.12em] text-[#42665c]">{t.brand}</span>
             </div>
-            <h1 className="max-w-2xl text-5xl font-black leading-[1.02] text-[#10231f] sm:text-6xl">
-              Your portfolio, explained like a risk desk would.
-            </h1>
-            <p className="mt-5 max-w-xl text-lg leading-8 text-[#4a5f59]">
-              Enter tickers and weights to generate a visual risk snapshot: concentration, sector exposure, stress scenarios, and a shareable report image.
-            </p>
+            <div className="grid grid-cols-2 rounded-md border border-[#d7cfc1] bg-white p-1 text-sm font-black">
+              <button onClick={() => setLang("ko")} className={`rounded px-3 py-2 ${lang === "ko" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>KO</button>
+              <button onClick={() => setLang("en")} className={`rounded px-3 py-2 ${lang === "en" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>EN</button>
+            </div>
+          </header>
+
+          <div>
+            <h1 className="text-4xl font-black leading-tight text-[#10231f] sm:text-5xl">{t.headline}</h1>
+            <p className="mt-4 text-base leading-7 text-[#4a5f59]">{t.subhead}</p>
           </div>
 
-          <div className="rounded-lg border border-[#d6cec0] bg-white p-4 shadow-sm">
-            <label htmlFor="portfolio-input" className="text-sm font-bold text-[#10231f]">
-              Portfolio input
-            </label>
+          <section className="rounded-lg border border-[#d6cec0] bg-white p-4 shadow-sm">
+            <label htmlFor="portfolio-input" className="text-sm font-black">{t.input}</label>
             <textarea
               id="portfolio-input"
               value={input}
               onChange={(event) => setInput(event.target.value)}
+              placeholder={t.placeholder}
               spellCheck={false}
-              className="mt-3 min-h-52 w-full resize-none rounded-md border border-[#d6cec0] bg-[#fbfaf6] p-4 font-mono text-sm leading-7 outline-none transition focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
+              className="mt-3 min-h-48 w-full resize-none rounded-md border border-[#d6cec0] bg-[#fffdf8] p-4 font-mono text-sm leading-7 outline-none transition focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
             />
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button onClick={() => setInput(sampleInput)} className="rounded-md bg-[#10231f] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#1c3c35]">
-                Load sample
-              </button>
-              <button onClick={downloadCard} className="rounded-md bg-[#f2b84b] px-4 py-3 text-sm font-bold text-[#10231f] transition hover:bg-[#e6a92e]">
-                Save report image
-              </button>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <button onClick={() => setInput(sampleInput)} className="rounded-md bg-[#10231f] px-3 py-3 text-sm font-black text-white transition hover:bg-[#1c3c35]">{t.sample}</button>
+              <button onClick={saveImage} className="rounded-md bg-[#f2b84b] px-3 py-3 text-sm font-black text-[#10231f] transition hover:bg-[#e6a92e]">{t.save}</button>
+              <button onClick={shareImage} className="rounded-md bg-[#2f7d6d] px-3 py-3 text-sm font-black text-white transition hover:bg-[#286c5e]">{t.share}</button>
             </div>
-            <p className="mt-4 text-xs leading-5 text-[#6d7b76]">
-              MVP estimates use built-in sample classifications and stress assumptions. Use it for exploration, not investment advice.
-            </p>
-          </div>
+            <p className="mt-4 text-xs leading-5 text-[#6d7b76]">{t.unmatched}</p>
+          </section>
         </div>
 
-        <div ref={reportRef} className="grid content-center gap-5">
-          <section className="rounded-lg bg-[#10231f] p-5 text-white shadow-xl">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-bold uppercase tracking-[0.16em] text-[#95d5b2]">Risk snapshot</p>
-                <h2 className="mt-2 text-3xl font-black">Score {riskScore}/100</h2>
+        <div className="grid gap-5">
+          <section className="grid gap-5 xl:grid-cols-[390px_1fr]">
+            <StoryCard
+              t={t}
+              riskScore={riskScore}
+              style={style}
+              mainRisk={mainRisk}
+              topThree={topThree}
+              topHolding={topHolding}
+              volatility={volatility}
+              scenarios={scenarios}
+            />
+            <section className="rounded-lg bg-[#10231f] p-5 text-white shadow-xl">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.16em] text-[#95d5b2]">{t.score}</p>
+                  <h2 className="mt-2 text-4xl font-black">{riskScore}/100</h2>
+                </div>
+                <div className="rounded-md bg-white/10 px-4 py-3 text-right">
+                  <p className="text-xs text-[#c9d8d1]">{t.style}</p>
+                  <p className="max-w-56 text-xl font-black text-[#f2b84b]">{style}</p>
+                </div>
               </div>
-              <div className="rounded-md bg-white/10 px-4 py-3 text-right">
-                <p className="text-xs text-[#c9d8d1]">Estimated volatility</p>
-                <p className="text-2xl font-black text-[#f2b84b]">{fmt(volatility)}</p>
+              <div className="mt-5 h-4 rounded-full bg-white/10">
+                <div className="h-4 rounded-full bg-[#f2b84b]" style={{ width: `${riskScore}%` }} />
               </div>
-            </div>
-            <div className="mt-5 h-4 rounded-full bg-white/10">
-              <div className="h-4 rounded-full bg-[#f2b84b]" style={{ width: `${riskScore}%` }} />
-            </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <Metric label="Top 3 holdings" value={fmt(topThree)} />
-              <Metric label="Largest position" value={topHolding ? `${topHolding.ticker} ${fmt(topHolding.weight)}` : "-"} />
-              <Metric label="Recognized lines" value={`${holdings.length}`} />
-            </div>
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <Metric label={t.top3} value={fmt(topThree)} />
+                <Metric label={t.largest} value={topHolding ? `${topHolding.ticker} ${fmt(topHolding.weight)}` : "-"} />
+                <Metric label={t.vol} value={fmt(volatility)} />
+              </div>
+              <div className="mt-5 rounded-md bg-white/10 p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#95d5b2]">{t.mainRisk}</p>
+                <p className="mt-2 text-2xl font-black">{mainRisk}</p>
+              </div>
+            </section>
           </section>
 
-          <section className="grid gap-5 md:grid-cols-2">
-            <Panel title="Asset mix" data={assets} accent="#2f7d6d" />
-            <Panel title="Sector exposure" data={sectors} accent="#d86847" />
+          <section className="grid gap-5 md:grid-cols-3">
+            <Panel title={t.assets} data={assets} accent="#2f7d6d" />
+            <Panel title={t.sectors} data={sectors} accent="#d86847" />
+            <Panel title={t.regions} data={regions} accent="#5b68b9" />
           </section>
 
           <section className="rounded-lg border border-[#d6cec0] bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">Stress scenarios</h2>
+            <h2 className="text-lg font-black">{t.scenarios}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {scenarios.map(([label, value]) => (
                 <div key={label} className="rounded-md bg-[#f6f3ec] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-bold">{label}</span>
+                    <span className="text-sm font-black">{label}</span>
                     <span className={`text-xl font-black ${value < 0 ? "text-[#c34e32]" : "text-[#2f7d6d]"}`}>{value > 0 ? "+" : ""}{fmt(value)}</span>
                   </div>
                   <div className="mt-3 h-2 rounded-full bg-[#e1dacd]">
@@ -251,12 +426,13 @@ export default function Home() {
           </section>
 
           <section className="rounded-lg border border-[#d6cec0] bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">Plain-English readout</h2>
+            <h2 className="text-lg font-black">{t.readout}</h2>
             <div className="mt-4 grid gap-3">
               {insights.map((text) => (
-                <p key={text} className="rounded-md bg-[#eef6f2] px-4 py-3 text-sm font-semibold text-[#234940]">{text}</p>
+                <p key={text} className="rounded-md bg-[#eef6f2] px-4 py-3 text-sm font-bold text-[#234940]">{text}</p>
               ))}
             </div>
+            <p className="mt-4 text-xs leading-5 text-[#6d7b76]">{t.notice}</p>
           </section>
         </div>
       </section>
@@ -264,11 +440,77 @@ export default function Home() {
   );
 }
 
+function getStyle(score: number, lang: Lang) {
+  if (score >= 78) return lang === "ko" ? "공격적인 성장형" : "Aggressive growth";
+  if (score >= 58) return lang === "ko" ? "성장 쏠림형" : "Growth tilted";
+  if (score >= 38) return lang === "ko" ? "균형 추구형" : "Balanced risk";
+  return lang === "ko" ? "방어적인 안정형" : "Defensive";
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-white/10 p-4">
       <p className="text-xs text-[#c9d8d1]">{label}</p>
       <p className="mt-1 break-words text-xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function StoryCard({
+  t,
+  riskScore,
+  style,
+  mainRisk,
+  topThree,
+  topHolding,
+  volatility,
+  scenarios,
+}: {
+  t: (typeof labels)[Lang];
+  riskScore: number;
+  style: string;
+  mainRisk: string;
+  topThree: number;
+  topHolding: Holding | null;
+  volatility: number;
+  scenarios: readonly (readonly [string, number])[];
+}) {
+  return (
+    <section className="mx-auto w-full max-w-[390px] rounded-lg bg-[#10231f] p-5 text-white shadow-xl">
+      <div className="aspect-[9/16] rounded-md border border-white/10 bg-[#10231f] p-6">
+        <div className="h-1.5 w-full rounded-full bg-[#f2b84b]" />
+        <p className="mt-8 text-sm font-black uppercase tracking-[0.16em] text-[#95d5b2]">{t.story}</p>
+        <p className="mt-5 text-7xl font-black tracking-normal text-[#f8f4ea]">{riskScore}</p>
+        <p className="text-2xl font-black text-[#f2b84b]">/100 {t.score}</p>
+        <h2 className="mt-8 text-4xl font-black leading-tight text-[#f8f4ea]">{style}</h2>
+        <div className="mt-8 rounded-md bg-white/10 p-4">
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-[#95d5b2]">{t.mainRisk}</p>
+          <p className="mt-2 break-words text-2xl font-black">{mainRisk}</p>
+        </div>
+        <div className="mt-5 grid grid-cols-3 gap-2 text-[#10231f]">
+          <SmallStat label={t.top3} value={fmt(topThree)} />
+          <SmallStat label={t.largest} value={topHolding ? topHolding.ticker : "-"} />
+          <SmallStat label={t.vol} value={fmt(volatility)} />
+        </div>
+        <div className="mt-7 space-y-3">
+          {scenarios.slice(0, 3).map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-3 text-sm font-black">
+              <span className="text-[#c9d8d1]">{label}</span>
+              <span className={value < 0 ? "text-[#ff9f7d]" : "text-[#95d5b2]"}>{value > 0 ? "+" : ""}{fmt(value)}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-8 text-xs leading-5 text-[#c9d8d1]">{t.notice}</p>
+      </div>
+    </section>
+  );
+}
+
+function SmallStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-[#f8f4ea] p-3">
+      <p className="text-[10px] font-bold text-[#60716b]">{label}</p>
+      <p className="mt-1 break-words text-sm font-black">{value}</p>
     </div>
   );
 }
