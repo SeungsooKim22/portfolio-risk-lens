@@ -79,6 +79,7 @@ export function determinePortfolioBadges(holdings: EngineHolding[], metrics: Por
   const top = metrics.topHolding;
   const techWeight = sectorWeight(holdings, "Technology");
   const healthWeight = sectorWeight(holdings, "Health Care") + tickerWeight(holdings, biotechTickers);
+  const aerospaceWeight = sectorWeight(holdings, "Aerospace");
   const semiconductorWeight = tickerWeight(holdings, semiconductorTickers);
   const broadEtfWeight = tickerWeight(holdings, broadEtfs);
   const leveragedWeight = tickerWeight(holdings, leveragedEtfs);
@@ -113,6 +114,7 @@ export function determinePortfolioBadges(holdings: EngineHolding[], metrics: Por
   else if (techWeight >= 65) badges.push({ id: "tech", priority: 700, emoji: "💻", title: "실리콘밸리 주민등록자", description: "빅테크가 세상을 먹는다고 믿습니다." });
   if (healthWeight >= 80) badges.push({ id: "health", priority: 690, emoji: "🧪", title: "임상 결과가 내 금리 결정", description: "Phase 2 발표 날에는 잠을 자지 않습니다." });
   else if (healthWeight >= 60) badges.push({ id: "health", priority: 680, emoji: "🧬", title: "FDA와 운명공동체", description: "경제지표보다 임상 발표 날짜가 중요합니다." });
+  if (aerospaceWeight >= 30) badges.push({ id: "aerospace", priority: 675, emoji: "🚀", title: "포트폴리오가 궤도에 있습니다", description: "지상보다 우주에서 답을 찾습니다." });
 
   if (broadEtfWeight >= 80) badges.push({ id: "bogle", priority: 620, emoji: "📚", title: "존 보글이 흐뭇해합니다", description: "시장 이기기를 포기했더니 마음이 편해졌습니다." });
   if (metrics.defensiveWeight >= 50) badges.push({ id: "defensive", priority: 600, emoji: "🛡️", title: "폭락장 생존 전문가", description: "남들이 수익률 볼 때 나는 생존율을 봅니다." });
@@ -129,7 +131,13 @@ export function determinePortfolioBadges(holdings: EngineHolding[], metrics: Por
   }
 
   if (badges.length === 0) {
-    badges.push({ id: "balanced", priority: 100, emoji: "⚖️", title: "월가의 모범생", description: "튀지는 않지만 오래 살아남는 쪽입니다." });
+    if (metrics.riskScore >= 65 || metrics.volatility >= 35) {
+      badges.push({ id: "high_volatility_mix", priority: 100, emoji: "🎢", title: "변동성 놀이공원 입장권", description: "종목은 나눴지만 다들 꽤 세게 움직입니다." });
+    } else if (metrics.riskScore >= 45) {
+      badges.push({ id: "balanced_growth", priority: 100, emoji: "⚖️", title: "적당히 미친 투자자", description: "분산은 했지만 심심한 포트폴리오는 아닙니다." });
+    } else {
+      badges.push({ id: "balanced", priority: 100, emoji: "⚖️", title: "월가의 모범생", description: "튀지는 않지만 오래 살아남는 쪽입니다." });
+    }
   }
 
   return dedupeBadges(badges);
