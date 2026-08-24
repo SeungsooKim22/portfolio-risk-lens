@@ -1,5 +1,6 @@
 export type EngineHolding = {
   ticker: string;
+  displayName?: string;
   weight: number;
   asset: string;
   sector: string;

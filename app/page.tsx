@@ -7,6 +7,7 @@ type Lang = "ko" | "en";
 
 type Holding = {
   ticker: string;
+  displayName: string;
   weight: number;
   name: string;
   asset: string;
@@ -115,6 +116,7 @@ const library: Record<string, Omit<Holding, "ticker" | "weight">> = {
   AMD: { name: "AMD", asset: "US Equity", sector: "Technology", region: "United States", volatility: 48, stress: { techSelloff: -34, rateShock: -14, recession: -28, dollarDrop: -3 } },
   AVGO: { name: "Broadcom", asset: "US Equity", sector: "Technology", region: "United States", volatility: 31, stress: { techSelloff: -27, rateShock: -10, recession: -21, dollarDrop: -3 } },
   TSM: { name: "TSMC", asset: "Global Equity", sector: "Technology", region: "International", volatility: 33, stress: { techSelloff: -30, rateShock: -10, recession: -23, dollarDrop: 2 } },
+  SNDK: { name: "SanDisk", asset: "US Equity", sector: "Technology", region: "United States", volatility: 42, stress: { techSelloff: -30, rateShock: -12, recession: -28, dollarDrop: -3 } },
   VOO: { name: "Vanguard S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
   IVV: { name: "iShares Core S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
   VT: { name: "Total World Stock ETF", asset: "Global Equity ETF", sector: "Broad Market", region: "Global", volatility: 18, stress: { techSelloff: -14, rateShock: -6, recession: -20, dollarDrop: 2 } },
@@ -188,6 +190,9 @@ const aliases: Record<string, string> = {
   broadcom: "AVGO",
   tsmc: "TSM",
   대만반도체: "TSM",
+  샌디스크: "SNDK",
+  sandisk: "SNDK",
+  sndk: "SNDK",
   voo: "VOO",
   ivv: "IVV",
   vt: "VT",
@@ -304,7 +309,8 @@ function parsePortfolio(value: string): Holding[] {
         stress: { techSelloff: -18, rateShock: -8, recession: -20, dollarDrop: -2 },
       };
       const weight = Number.parseFloat(rawWeight);
-      return { ticker, weight: Number.isFinite(weight) ? weight : 0, ...base };
+      const displayName = /^[A-Z0-9.]+$/.test(rawName.trim()) ? base.name : rawName;
+      return { ticker, displayName, weight: Number.isFinite(weight) ? weight : 0, ...base };
     })
     .filter((item) => item.ticker && item.weight > 0);
 }
@@ -453,8 +459,8 @@ export default function Home() {
         : `${fmt(unknownWeight)} of the portfolio uses fallback classifications.`
       : topHolding && topHolding.weight > 25
       ? lang === "ko"
-        ? `${topHolding.ticker} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
-        : `${topHolding.ticker} alone drives ${fmt(topHolding.weight)} of the portfolio.`
+        ? `${topHolding.displayName} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
+        : `${topHolding.displayName} alone drives ${fmt(topHolding.weight)} of the portfolio.`
       : lang === "ko"
         ? "단일 종목 집중도는 비교적 안정적이에요."
         : "Single-name concentration is controlled.",
@@ -532,7 +538,7 @@ export default function Home() {
     const statY = 1185;
     [
       [t.top3, fmt(topThree)],
-      [t.largest, topHolding ? `${topHolding.ticker} ${fmt(topHolding.weight)}` : "-"],
+      [t.largest, topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"],
       [t.vol, fmt(volatility)],
     ].forEach(([label, value], index) => {
       const x = 104 + index * 296;
@@ -650,7 +656,7 @@ export default function Home() {
               </div>
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <Metric label={t.top3} value={fmt(topThree)} tone={tone} />
-                <Metric label={t.largest} value={topHolding ? `${topHolding.ticker} ${fmt(topHolding.weight)}` : "-"} tone={tone} />
+                <Metric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} tone={tone} />
                 <Metric label={t.vol} value={fmt(volatility)} tone={tone} />
               </div>
               <div className="mt-5 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
@@ -736,7 +742,7 @@ function getMainRisk({
     return lang === "ko" ? `${topSector[0]} 쏠림` : `${topSector[0]} concentration`;
   }
   if (topHolding && topHolding.weight > 26) {
-    return lang === "ko" ? `${topHolding.ticker} 비중 과다` : `${topHolding.ticker} concentration`;
+    return lang === "ko" ? `${topHolding.displayName} 비중 과다` : `${topHolding.displayName} concentration`;
   }
   if (unknownWeight > 35) {
     return lang === "ko" ? "종목 정보 부족" : "Limited ticker data";
@@ -769,14 +775,14 @@ function getFeedback({
   if (topHolding && topHolding.weight > 28) {
     ideas.push(
       lang === "ko"
-        ? `${topHolding.ticker} 비중을 조금 낮추면 한 종목에 끌려가는 위험이 줄어요.`
-        : `Trimming ${topHolding.ticker} would reduce single-name dependency.`,
+        ? `${topHolding.displayName} 비중을 조금 낮추면 한 종목에 끌려가는 위험이 줄어요.`
+        : `Trimming ${topHolding.displayName} would reduce single-name dependency.`,
     );
   }
   if (topSector && topSector[1] > 45) {
     ideas.push(
       lang === "ko"
-        ? `${topSector[0]} 밖의 섹터를 섞으면 결과가 한 방향으로 몰리는 걸 줄일 수 있어요.`
+        ? `${topSector[0]} 비중이 커서 같은 업황에 함께 흔들릴 수 있어요. 다른 섹터를 섞으면 점수가 내려갑니다.`
         : `Adding sectors beyond ${topSector[0]} would make the portfolio less one-sided.`,
     );
   }
@@ -866,7 +872,7 @@ function StoryCard({
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2 text-[#10231f]">
           <SmallStat label={t.top3} value={fmt(topThree)} tone={tone} />
-          <SmallStat label={t.largest} value={topHolding ? topHolding.ticker : "-"} tone={tone} />
+          <SmallStat label={t.largest} value={topHolding ? topHolding.displayName : "-"} tone={tone} />
           <SmallStat label={t.vol} value={fmt(volatility)} tone={tone} />
         </div>
         <div className="mt-5 space-y-2">
