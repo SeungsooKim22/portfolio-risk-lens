@@ -5,6 +5,7 @@ import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio";
 import { groupWeights } from "../lib/analytics/calculateFeatures";
 import { generateBadges } from "../lib/personality/generateBadges";
 import { generateCharacter } from "../lib/personality/generateCharacter";
+import type { PortfolioFeatures } from "../types/analytics.ts";
 
 type Lang = "ko" | "en";
 
@@ -380,7 +381,7 @@ function isUnknownLabel(label: string) {
 }
 
 function getTone(score: number) {
-  if (score < 35) {
+  if (score < 45) {
     return {
       page: "#edf9ef",
       ink: "#10231f",
@@ -393,7 +394,7 @@ function getTone(score: number) {
       warning: "#d85b37",
     };
   }
-  if (score < 55) {
+  if (score < 60) {
     return {
       page: "#fff7df",
       ink: "#2b2411",
@@ -469,13 +470,22 @@ export default function Home() {
   const badges = generateBadges(normalized, analysis.features, analysis.risk, lang);
   const knownSectors = sectors.filter(([label]) => !isUnknownLabel(label));
   const unknownWeight = analysis.portfolio.unknownWeight;
+  const etfWeight = normalized.filter((item) => item.security.isETF).reduce((sum, item) => sum + item.weight, 0);
+  const semiconductorWeight = normalized.filter((item) => item.security.primaryTheme === "semiconductor").reduce((sum, item) => sum + item.weight, 0);
+  const individualEquityWeight = normalized
+    .filter((item) => !item.security.isETF && ["equity", "private"].includes(item.security.assetType))
+    .reduce((sum, item) => sum + item.weight, 0);
   const scenarios = analysis.scenarios.map((scenario) => [lang === "ko" ? scenario.labelKo : scenario.labelEn, scenario.value] as const);
 
   const insights = [
-    unknownWeight > 35
+    unknownWeight > 5
       ? lang === "ko"
         ? `입력한 종목 중 ${fmt(unknownWeight)}는 아직 데이터가 부족해요.`
         : `${fmt(unknownWeight)} of the portfolio uses fallback classifications.`
+      : etfWeight >= 50 && topHolding?.security.isETF
+        ? lang === "ko"
+          ? `${topHolding.displayName} 비중이 가장 크지만 ETF라 단일기업 몰빵과는 달라요.`
+          : `${topHolding.displayName} is the largest line, but as an ETF it is not single-company concentration.`
       : topHolding && topHolding.weight > 25
       ? lang === "ko"
         ? `${topHolding.displayName} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
@@ -483,14 +493,22 @@ export default function Home() {
       : lang === "ko"
         ? `실질 분산 종목 수는 약 ${analysis.features.effectiveNumberOfPositions.toFixed(1)}개예요.`
         : `Effective diversification is about ${analysis.features.effectiveNumberOfPositions.toFixed(1)} positions.`,
-    sectors[0] && sectors[0][1] > 45
+    semiconductorWeight >= 25
       ? lang === "ko"
-        ? `${sectors[0][0]} 노출이 ${fmt(sectors[0][1])}로 높은 편이에요.`
-        : `${sectors[0][0]} exposure is high at ${fmt(sectors[0][1])}.`
+        ? `삼성전자와 하이닉스 영향으로 반도체 사이클 민감도는 꽤 남아 있어요.`
+        : `The Samsung and SK hynix weights leave meaningful semiconductor-cycle sensitivity.`
+      : sectors[0] && sectors[0][1] > 45
+        ? lang === "ko"
+          ? `${sectors[0][0]} 비중이 ${fmt(sectors[0][1])}로 높은 편이에요.`
+          : `${sectors[0][0]} exposure is high at ${fmt(sectors[0][1])}.`
       : lang === "ko"
         ? "섹터 쏠림은 과하지 않은 편이에요."
         : "Sector exposure is reasonably balanced.",
-    regions[0] && regions[0][1] > 80
+    riskScore < 45
+      ? lang === "ko"
+        ? `앱 기준으로 ${riskScore.toFixed(1)}점은 낮은 리스크 구간에 가까워요.`
+        : `${riskScore.toFixed(1)} is on the lower-risk side in this model.`
+      : regions[0] && regions[0][1] > 80
       ? lang === "ko"
         ? `${regions[0][0]} 중심 포트폴리오라 지역 분산은 약해요.`
         : `${regions[0][0]} dominates regional exposure.`
@@ -500,12 +518,16 @@ export default function Home() {
   ];
   const feedback = getFeedback({
     lang,
-    topHolding: topHolding ? { displayName: topHolding.displayName, weight: topHolding.weight } : null,
+    topHolding: topHolding ? { displayName: topHolding.displayName, weight: topHolding.weight, isETF: topHolding.security.isETF } : null,
     topSector: knownSectors[0],
     unknownWeight,
     topThree,
     volatility,
     assets,
+    features: analysis.features,
+    etfWeight,
+    semiconductorWeight,
+    individualEquityWeight,
   });
 
   function drawCard() {
@@ -792,53 +814,81 @@ function getFeedback({
   topThree,
   volatility,
   assets,
+  features,
+  etfWeight,
+  semiconductorWeight,
+  individualEquityWeight,
 }: {
   lang: Lang;
-  topHolding: Holding | null;
+  topHolding: { displayName: string; weight: number; isETF: boolean } | null;
   topSector?: [string, number];
   unknownWeight: number;
   topThree: number;
   volatility: number;
   assets: [string, number][];
+  features: PortfolioFeatures;
+  etfWeight: number;
+  semiconductorWeight: number;
+  individualEquityWeight: number;
 }) {
   const bondWeight = assets
     .filter(([label]) => ["채권", "장기채", "Bonds", "Long Bonds"].includes(label))
     .reduce((sum, [, value]) => sum + value, 0);
   const ideas: string[] = [];
 
-  if (topHolding && topHolding.weight > 28) {
+  if (etfWeight >= 50) {
+    ideas.push(
+      lang === "ko"
+        ? "ETF 비중이 높아서 기본 분산은 이미 들어가 있어요. 더 낮추고 싶다면 종목 수보다 QQQ 중심의 기술주 민감도를 먼저 조절하는 쪽이 자연스러워요."
+        : "The ETF weight already provides built-in diversification. To reduce risk further, adjusting QQQ-style tech sensitivity matters more than simply adding more tickers.",
+    );
+  }
+  if (topHolding && !topHolding.isETF && topHolding.weight > 28) {
     ideas.push(
       lang === "ko"
         ? `${topHolding.displayName} 비중을 조금 낮추면 한 종목에 끌려가는 위험이 줄어요.`
         : `Trimming ${topHolding.displayName} would reduce single-name dependency.`,
     );
   }
-  if (topSector && topSector[1] > 45) {
+  if (semiconductorWeight >= 25) {
+    ideas.push(
+      lang === "ko"
+        ? `삼성전자와 하이닉스를 합치면 ${fmt(semiconductorWeight)}라 메모리/HBM 사이클 영향이 커요. 이 부분을 줄이면 점수보다 실제 체감 변동성이 먼저 낮아질 수 있어요.`
+        : `Samsung and SK hynix add up to ${fmt(semiconductorWeight)}, so memory and HBM-cycle exposure is meaningful.`,
+    );
+  } else if (topSector && topSector[1] > 55 && etfWeight < 50) {
     ideas.push(
       lang === "ko"
         ? `${topSector[0]} 비중이 커서 같은 업황에 함께 흔들릴 수 있어요. 다른 섹터를 섞으면 점수가 내려갑니다.`
         : `Adding sectors beyond ${topSector[0]} would make the portfolio less one-sided.`,
     );
   }
-  if (bondWeight < 15 && volatility > 24) {
+  if (bondWeight < 10 && features.defensiveTilt < 5 && volatility > 20) {
     ideas.push(
       lang === "ko"
-        ? "변동성이 부담된다면 채권, 현금, 금 같은 완충 자산을 조금 넣어볼 수 있어요."
-        : "If the swings feel too large, bonds, cash, or gold can add a buffer.",
+        ? "방어자산이 거의 없어서 하락장에서 완충 장치는 약해요. 채권, 현금, 금을 소량 섞으면 수익 기대보다 변동성 관리에 도움이 됩니다."
+        : "There is very little defensive ballast. A small bond, cash, or gold sleeve would help manage swings more than expected return.",
     );
   }
-  if (topThree > 70) {
+  if (topThree > 70 && etfWeight < 50) {
     ideas.push(
       lang === "ko"
         ? "상위 3개 비중이 커서, 새 종목을 사기보다 기존 큰 비중을 나누는 게 먼저예요."
         : "The top three positions dominate, so splitting the largest weights matters before adding more tickers.",
     );
   }
-  if (unknownWeight > 25) {
+  if (unknownWeight > 5) {
     ideas.push(
       lang === "ko"
-        ? "아직 데이터가 부족한 종목이 많아요. 다음 버전에서는 직접 자산군을 고르게 하면 분석이 더 좋아집니다."
-        : "Several tickers use fallback data. Manual asset tags would make the next version more precise.",
+        ? "아직 데이터가 부족한 종목이 있어요. 종목 사전에 들어오면 자산 구성과 섹터 분석이 더 정확해집니다."
+        : "Some tickers still use fallback data. Adding them to the security master makes the exposure view more precise.",
+    );
+  }
+  if (ideas.length < 3 && individualEquityWeight < 35 && etfWeight >= 60) {
+    ideas.push(
+      lang === "ko"
+        ? "개별주 비중은 과하지 않은 편이에요. 지금 포트폴리오의 핵심 질문은 종목 수가 아니라 미국 성장주 비중을 어느 정도까지 편하게 감당할 수 있느냐에 가까워요."
+        : "Single-stock exposure is not excessive. The main question is how much US growth exposure you are comfortable carrying.",
     );
   }
 

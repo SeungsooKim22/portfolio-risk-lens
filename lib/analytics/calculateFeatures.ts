@@ -6,9 +6,10 @@ import { calculateHHI, concentrationFromHHI, effectiveNumberFromHHI } from "./ca
 export function calculateFeatures(positions: NormalizedPosition[]): PortfolioFeatures {
   const sorted = [...positions].sort((a, b) => b.weight - a.weight || a.ticker.localeCompare(b.ticker));
   const top = sorted[0];
-  const hhi = calculateHHI(positions.map((item) => item.weight));
+  const hhi = calculateFundAdjustedHHI(positions);
+  const effectiveConstituentCount = positions.reduce((sum, item) => sum + diversificationUnits(item), 0);
   const effectiveNumberOfPositions = effectiveNumberFromHHI(hhi);
-  const concentration = concentrationFromHHI(hhi, positions.length);
+  const concentration = concentrationFromHHI(hhi, effectiveConstituentCount);
   const sectorGroups = groupWeights(positions, (item) => item.security.sector || "Unknown", { skipUnknown: true });
   const themeGroups = groupWeights(positions, (item) => item.security.primaryTheme || item.security.themes?.[0] || "unknown", { skipUnknown: true });
   const sectorHhi = calculateHHI(Object.values(sectorGroups));
@@ -28,7 +29,7 @@ export function calculateFeatures(positions: NormalizedPosition[]): PortfolioFea
   const leverage = normalizeByAnchors(leverageRaw, riskNormalizationAnchors.leverage);
   const betaRaw = Math.abs(weighted(positions, (item) => item.security.beta ?? fallbackBeta(item)));
   const marketBeta = normalizeByAnchors(betaRaw, riskNormalizationAnchors.beta);
-  const largestEquityWeight = top && !top.security.isETF && ["equity", "private"].includes(top.security.assetType) ? top.weight : 0;
+  const largestEquityWeight = sorted.find((item) => !item.security.isETF && ["equity", "private"].includes(item.security.assetType))?.weight ?? 0;
   const idiosyncraticRaw = largestEquityWeight * 0.72 + concentration * 0.28;
   const idiosyncraticRisk = normalizeByAnchors(idiosyncraticRaw, riskNormalizationAnchors.idiosyncratic);
   const equityExposure = sumByAsset(positions, ["equity", "etf", "private"], (item) => item.security.assetType !== "bond" && item.security.assetType !== "commodity");
@@ -80,6 +81,20 @@ export function calculateFeatures(positions: NormalizedPosition[]): PortfolioFea
     downsideMethod: "stress-fallback",
     betaMethod: "asset-class-fallback",
   };
+}
+
+function calculateFundAdjustedHHI(positions: NormalizedPosition[]) {
+  return positions.reduce((sum, item) => {
+    const weight = item.weight / 100;
+    return sum + (weight * weight) / diversificationUnits(item);
+  }, 0);
+}
+
+function diversificationUnits(item: NormalizedPosition) {
+  if (item.security.isLeveraged) return item.security.diversificationUnits ?? 8;
+  if (item.security.assetType === "commodity" || item.security.assetType === "cash" || item.security.assetType === "crypto") return 1;
+  if (item.security.isETF) return item.security.diversificationUnits ?? (item.security.isBroadMarketETF ? 50 : 20);
+  return 1;
 }
 
 export function groupWeights(

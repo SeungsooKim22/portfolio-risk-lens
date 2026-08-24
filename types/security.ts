@@ -29,6 +29,7 @@ export type Security = {
   region?: string;
   isETF: boolean;
   isBroadMarketETF?: boolean;
+  diversificationUnits?: number;
   isLeveraged?: boolean;
   leverageMultiple?: number;
   isInverse?: boolean;

@@ -81,3 +81,14 @@ test("scores stay bounded", () => {
     }
   }
 });
+
+test("ETF-heavy user portfolio resolves WMT SCHD JEPQ and avoids single-stock treatment", () => {
+  const input = "QQQ 48\nSPYM 19.7\n삼성전자 17.6\n하이닉스 11.4\nWMT 1.9\nSCHD 0.6\nJEPQ 0.5";
+  const { analysis } = summarize(input);
+  assert.equal(analysis.portfolio.unknownWeight, 0);
+  assert.ok(analysis.portfolio.positions.some((item) => item.ticker === "WMT"));
+  assert.ok(analysis.portfolio.positions.some((item) => item.ticker === "SCHD"));
+  assert.ok(analysis.portfolio.positions.some((item) => item.ticker === "JEPQ"));
+  assert.ok(analysis.features.concentration < 15);
+  assert.ok(analysis.risk.score < 45);
+});
