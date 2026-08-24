@@ -421,8 +421,13 @@ export default function Home() {
   const topHolding = sorted[0] ?? null;
   const topThree = sorted.slice(0, 3).reduce((sum, item) => sum + item.weight, 0);
   const volatility = weighted(normalized, (item) => item.volatility);
-  const concentrationScore = Math.min(100, topThree * 0.8 + (topHolding?.weight || 0) * 0.6);
-  const riskScore = Math.round(Math.min(100, volatility * 1.55 + concentrationScore * 0.45));
+  const rawSectorGroups = groupBy(normalized, "sector", "en").filter(([label]) => !isUnknownLabel(label));
+  const topSectorWeight = rawSectorGroups[0]?.[1] ?? 0;
+  const concentrationScore = Math.min(
+    100,
+    (topHolding?.weight || 0) * 0.9 + topThree * 0.25 + topSectorWeight * 0.45,
+  );
+  const riskScore = Math.round(Math.min(100, volatility * 1.35 + concentrationScore * 0.3));
   const defensiveWeight = normalized
     .filter((item) => ["Bonds", "Long Bonds", "Commodity", "Cash"].includes(item.asset))
     .reduce((sum, item) => sum + item.weight, 0);
