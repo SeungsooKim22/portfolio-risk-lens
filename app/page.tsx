@@ -29,11 +29,11 @@ const labels = {
     sample: "샘플 불러오기",
     save: "이미지 저장",
     share: "바로 공유",
-    story: "내 포트폴리오 캐릭터",
+    story: "내 포트폴리오 성향",
     score: "리스크 점수",
     style: "투자 성향",
     mainRisk: "가장 눈에 띄는 위험",
-    top3: "상위 3종목 쏠림",
+    top3: "상위 3종목 비중",
     largest: "가장 큰 비중",
     vol: "변동성",
     assets: "자산 구성",
@@ -95,12 +95,98 @@ const library: Record<string, Omit<Holding, "ticker" | "weight">> = {
   GLD: { name: "Gold ETF", asset: "Commodity", sector: "Gold", region: "Global", volatility: 17, stress: { techSelloff: 4, rateShock: -3, recession: 7, dollarDrop: 8 } },
   BTC: { name: "Bitcoin", asset: "Crypto", sector: "Digital Assets", region: "Global", volatility: 70, stress: { techSelloff: -25, rateShock: -18, recession: -35, dollarDrop: 4 } },
   CASH: { name: "Cash", asset: "Cash", sector: "Cash", region: "Local", volatility: 1, stress: { techSelloff: 0, rateShock: 1, recession: 0, dollarDrop: -2 } },
+  "005930": { name: "Samsung Electronics", asset: "Korea Equity", sector: "Technology", region: "South Korea", volatility: 28, stress: { techSelloff: -22, rateShock: -8, recession: -20, dollarDrop: 3 } },
+  "000660": { name: "SK hynix", asset: "Korea Equity", sector: "Technology", region: "South Korea", volatility: 40, stress: { techSelloff: -32, rateShock: -12, recession: -26, dollarDrop: 4 } },
+  "035420": { name: "NAVER", asset: "Korea Equity", sector: "Communication Services", region: "South Korea", volatility: 34, stress: { techSelloff: -24, rateShock: -10, recession: -20, dollarDrop: 2 } },
+  "035720": { name: "Kakao", asset: "Korea Equity", sector: "Communication Services", region: "South Korea", volatility: 42, stress: { techSelloff: -28, rateShock: -13, recession: -25, dollarDrop: 2 } },
+  "005380": { name: "Hyundai Motor", asset: "Korea Equity", sector: "Consumer Discretionary", region: "South Korea", volatility: 30, stress: { techSelloff: -14, rateShock: -8, recession: -24, dollarDrop: 3 } },
+  "000270": { name: "Kia", asset: "Korea Equity", sector: "Consumer Discretionary", region: "South Korea", volatility: 31, stress: { techSelloff: -14, rateShock: -8, recession: -24, dollarDrop: 3 } },
+  "373220": { name: "LG Energy Solution", asset: "Korea Equity", sector: "Industrials", region: "South Korea", volatility: 38, stress: { techSelloff: -22, rateShock: -12, recession: -25, dollarDrop: 3 } },
+  "207940": { name: "Samsung Biologics", asset: "Korea Equity", sector: "Health Care", region: "South Korea", volatility: 27, stress: { techSelloff: -10, rateShock: -6, recession: -12, dollarDrop: 1 } },
+  "051910": { name: "LG Chem", asset: "Korea Equity", sector: "Materials", region: "South Korea", volatility: 37, stress: { techSelloff: -18, rateShock: -10, recession: -28, dollarDrop: 3 } },
+  "006400": { name: "Samsung SDI", asset: "Korea Equity", sector: "Industrials", region: "South Korea", volatility: 39, stress: { techSelloff: -22, rateShock: -12, recession: -26, dollarDrop: 3 } },
+  MU: { name: "Micron", asset: "US Equity", sector: "Technology", region: "United States", volatility: 44, stress: { techSelloff: -34, rateShock: -13, recession: -28, dollarDrop: -3 } },
+  SQ: { name: "Block", asset: "US Equity", sector: "Financials", region: "United States", volatility: 54, stress: { techSelloff: -24, rateShock: -16, recession: -32, dollarDrop: -2 } },
+  AMD: { name: "AMD", asset: "US Equity", sector: "Technology", region: "United States", volatility: 48, stress: { techSelloff: -34, rateShock: -14, recession: -28, dollarDrop: -3 } },
+  AVGO: { name: "Broadcom", asset: "US Equity", sector: "Technology", region: "United States", volatility: 31, stress: { techSelloff: -27, rateShock: -10, recession: -21, dollarDrop: -3 } },
+  TSM: { name: "TSMC", asset: "Global Equity", sector: "Technology", region: "International", volatility: 33, stress: { techSelloff: -30, rateShock: -10, recession: -23, dollarDrop: 2 } },
+};
+
+const aliases: Record<string, string> = {
+  apple: "AAPL",
+  애플: "AAPL",
+  아이폰: "AAPL",
+  microsoft: "MSFT",
+  ms: "MSFT",
+  마이크로소프트: "MSFT",
+  마소: "MSFT",
+  nvidia: "NVDA",
+  엔비디아: "NVDA",
+  nvda: "NVDA",
+  amazon: "AMZN",
+  아마존: "AMZN",
+  google: "GOOGL",
+  alphabet: "GOOGL",
+  구글: "GOOGL",
+  알파벳: "GOOGL",
+  meta: "META",
+  메타: "META",
+  facebook: "META",
+  페이스북: "META",
+  tesla: "TSLA",
+  테슬라: "TSLA",
+  삼성전자: "005930",
+  삼성: "005930",
+  삼전: "005930",
+  samsung: "005930",
+  samsungelectronics: "005930",
+  하이닉스: "000660",
+  sk하이닉스: "000660",
+  skhynix: "000660",
+  hynix: "000660",
+  네이버: "035420",
+  naver: "035420",
+  카카오: "035720",
+  kakao: "035720",
+  현대차: "005380",
+  현대자동차: "005380",
+  hyundaimotor: "005380",
+  기아: "000270",
+  kia: "000270",
+  lg에너지솔루션: "373220",
+  lg엔솔: "373220",
+  삼성바이오로직스: "207940",
+  삼바: "207940",
+  lg화학: "051910",
+  삼성sdi: "006400",
+  마이크론: "MU",
+  마이크로: "MU",
+  micron: "MU",
+  block: "SQ",
+  블록: "SQ",
+  스퀘어: "SQ",
+  실sq: "SQ",
+  sq: "SQ",
+  amd: "AMD",
+  암드: "AMD",
+  브로드컴: "AVGO",
+  broadcom: "AVGO",
+  tsmc: "TSM",
+  대만반도체: "TSM",
+  비트코인: "BTC",
+  bitcoin: "BTC",
+  금: "GLD",
+  골드: "GLD",
+  cash: "CASH",
+  현금: "CASH",
 };
 
 const translations: Record<string, string> = {
   "US Equity": "미국 주식",
   "US Equity ETF": "미국 주식 ETF",
   "Global Equity ETF": "글로벌 주식 ETF",
+  "Global Equity": "글로벌 주식",
+  "Korea Equity": "한국 주식",
   "Long Bonds": "장기채",
   Bonds: "채권",
   Commodity: "원자재",
@@ -117,6 +203,7 @@ const translations: Record<string, string> = {
   "Digital Assets": "디지털 자산",
   Unknown: "정보 부족",
   "United States": "미국",
+  "South Korea": "한국",
   International: "해외",
   Global: "글로벌",
   Local: "현지",
@@ -128,23 +215,64 @@ function localize(label: string, lang: Lang) {
   return lang === "ko" ? translations[label] ?? label : label;
 }
 
+function normalizeName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/보통주|우선주|우\b|주식회사|주식|inc\.?|corp\.?|corporation|co\.?|ltd\.?|plc/g, "")
+    .replace(/[^a-z0-9가-힣.]/g, "");
+}
+
+function editDistance(a: string, b: string) {
+  const dp = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+function resolveTicker(rawName: string) {
+  const normalized = normalizeName(rawName);
+  const upper = rawName.trim().toUpperCase();
+  if (library[upper]) return upper;
+  if (library[normalized.toUpperCase()]) return normalized.toUpperCase();
+  if (aliases[normalized]) return aliases[normalized];
+
+  const fuzzy = Object.entries(aliases)
+    .map(([alias, ticker]) => ({ alias, ticker, distance: editDistance(normalized, alias) }))
+    .filter(({ alias, distance }) => normalized.length >= 3 && distance <= Math.max(1, Math.floor(alias.length * 0.25)))
+    .sort((a, b) => a.distance - b.distance || a.alias.length - b.alias.length)[0];
+
+  return fuzzy?.ticker ?? upper;
+}
+
 function parsePortfolio(value: string): Holding[] {
   return value
     .split(/\n|,/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [rawTicker, rawWeight] = line.split(/\s+/);
-      const ticker = rawTicker.toUpperCase();
-      const weight = Number.parseFloat((rawWeight || "0").replace("%", ""));
+      const match = line.match(/(.+?)\s+(-?\d+(?:\.\d+)?)\s*%?$/);
+      const rawName = match?.[1]?.trim() || line;
+      const rawWeight = match?.[2] || "0";
+      const ticker = resolveTicker(rawName);
       const base = library[ticker] ?? {
-        name: ticker,
+        name: rawName,
         asset: "Unclassified Equity",
         sector: "Unknown",
         region: "Unknown",
         volatility: 30,
         stress: { techSelloff: -18, rateShock: -8, recession: -20, dollarDrop: -2 },
       };
+      const weight = Number.parseFloat(rawWeight);
       return { ticker, weight: Number.isFinite(weight) ? weight : 0, ...base };
     })
     .filter((item) => item.ticker && item.weight > 0);
@@ -173,7 +301,7 @@ function isUnknownLabel(label: string) {
 }
 
 function getTone(score: number) {
-  if (score >= 75) {
+  if (score < 35) {
     return {
       page: "#edf9ef",
       ink: "#10231f",
@@ -186,7 +314,7 @@ function getTone(score: number) {
       warning: "#d85b37",
     };
   }
-  if (score >= 55) {
+  if (score < 55) {
     return {
       page: "#fff7df",
       ink: "#2b2411",
@@ -199,7 +327,7 @@ function getTone(score: number) {
       warning: "#c45b22",
     };
   }
-  if (score >= 35) {
+  if (score < 75) {
     return {
       page: "#fff0e5",
       ink: "#2f1d12",
@@ -274,8 +402,8 @@ export default function Home() {
   const scenarios = [
     [lang === "ko" ? "나스닥 -20% 하락 시" : "If Nasdaq falls 20%", weighted(normalized, (item) => item.stress.techSelloff)],
     [lang === "ko" ? "금리 1%p 상승 시" : "If rates rise 1%", weighted(normalized, (item) => item.stress.rateShock)],
-    [lang === "ko" ? "경기침체가 오면" : "In a recession", weighted(normalized, (item) => item.stress.recession)],
-    [lang === "ko" ? "달러가 약해지면" : "If USD weakens", weighted(normalized, (item) => item.stress.dollarDrop)],
+    [lang === "ko" ? "경기침체 시" : "In a recession", weighted(normalized, (item) => item.stress.recession)],
+    [lang === "ko" ? "달러 약세 시" : "If USD weakens", weighted(normalized, (item) => item.stress.dollarDrop)],
   ] as const;
 
   const insights = [
