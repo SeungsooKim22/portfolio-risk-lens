@@ -106,3 +106,15 @@ test("capture parser can derive weights from amounts", () => {
   assert.match(input, /QQQ 68\.57%/);
   assert.match(input, /삼성전자 24\.29%/);
 });
+
+test("capture parser connects separated name and percent lines", () => {
+  const rows = parseCaptureText("앱셀레라 바이오로직스\n8,937,917원 78.8%\n엑스에너지\n1,254,233원 11.0%\n로켓 랩\n959,526원 8.4%\n라이트패스 테크놀로지\n186,370원 1.6%");
+  assert.deepEqual(rows.map((row) => row.name), ["앱셀레라 바이오로직스", "엑스에너지", "로켓 랩", "라이트패스 테크놀로지"]);
+  assert.deepEqual(rows.map((row) => row.weight), [78.8, 11, 8.4, 1.6]);
+});
+
+test("uploaded screenshot names resolve to securities", () => {
+  const input = candidatesToManualInput(parseCaptureText("앱셀레라 바이오로직스 78.8%\n엑스에너지 11.0%\n로켓 랩 8.4%\n라이트패스 테크놀로지 1.6%"));
+  const { analysis } = summarize(input);
+  assert.deepEqual(analysis.portfolio.positions.map((item) => item.ticker), ["ABCL", "XE", "RKLB", "LPTH"]);
+});

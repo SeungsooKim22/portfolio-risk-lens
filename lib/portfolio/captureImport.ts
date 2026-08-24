@@ -16,10 +16,10 @@ export function parseCaptureText(text: string): CaptureCandidate[] {
     .map(cleanLine)
     .filter((line) => line.length >= 3 && !ignorePatterns.some((pattern) => pattern.test(line)));
 
-  const percentRows = lines.flatMap(parsePercentLine);
+  const percentRows = lines.flatMap((line, index) => parsePercentLine(line, lines, index));
   if (percentRows.length > 0) return combineRows(percentRows);
 
-  const amountRows = lines.flatMap(parseAmountLine);
+  const amountRows = lines.flatMap((line, index) => parseAmountLine(line, lines, index));
   const totalAmount = amountRows.reduce((sum, row) => sum + row.amount, 0);
   if (totalAmount <= 0) return [];
 
@@ -40,7 +40,7 @@ export function candidatesToManualInput(rows: CaptureCandidate[]) {
     .join("\n");
 }
 
-function parsePercentLine(line: string): CaptureCandidate[] {
+function parsePercentLine(line: string, lines: string[], index: number): CaptureCandidate[] {
   const matches = [...line.matchAll(/(-?\d+(?:[.,]\d+)?)\s*%/g)];
   if (matches.length === 0 || looksLikePerformanceLine(line)) return [];
 
@@ -48,13 +48,13 @@ function parsePercentLine(line: string): CaptureCandidate[] {
   const weight = Number.parseFloat(match[1].replace(",", "."));
   if (!Number.isFinite(weight) || weight <= 0 || weight > 100) return [];
 
-  const name = extractName(line.slice(0, match.index ?? 0));
+  const name = bestName(line.slice(0, match.index ?? 0), lines, index);
   if (!name) return [];
 
   return [{ name, weight, source: "percent", confidence: "high" }];
 }
 
-function parseAmountLine(line: string): { name: string; amount: number }[] {
+function parseAmountLine(line: string, lines: string[], index: number): { name: string; amount: number }[] {
   const matches = [...line.matchAll(/(?:₩|\$)?\s*(\d[\d,]{3,})(?:\.\d+)?\s*(?:원|KRW|USD|달러)?/gi)];
   if (matches.length === 0) return [];
 
@@ -64,7 +64,7 @@ function parseAmountLine(line: string): { name: string; amount: number }[] {
   if (amounts.length === 0) return [];
 
   const firstNumberIndex = matches[0].index ?? line.length;
-  const name = extractName(line.slice(0, firstNumberIndex));
+  const name = bestName(line.slice(0, firstNumberIndex), lines, index);
   if (!name) return [];
 
   return [{ name, amount: Math.max(...amounts) }];
@@ -81,6 +81,8 @@ function cleanLine(line: string) {
 function extractName(value: string) {
   const cleaned = value
     .replace(/\([^)]*\)/g, " ")
+    .replace(/(?:₩|\$)?\s*\d[\d,]*(?:\.\d+)?\s*(?:원|KRW|USD|달러)?/gi, " ")
+    .replace(/\d+(?:[.,]\d+)?\s*%/g, " ")
     .replace(/보통주|우선주|ETF|ETN|주식회사|주식|종목명|종목|국내|해외/gi, " ")
     .replace(/[^A-Za-z0-9가-힣.&\-\s]/g, " ")
     .replace(/\s+/g, " ")
@@ -88,6 +90,27 @@ function extractName(value: string) {
 
   if (!cleaned || /^\d+$/.test(cleaned) || cleaned.length < 2) return "";
   return cleaned;
+}
+
+function bestName(prefix: string, lines: string[], index: number) {
+  const direct = extractName(prefix);
+  if (isUsableName(direct)) return direct;
+
+  for (let offset = 1; offset <= 3; offset += 1) {
+    const previous = lines[index - offset];
+    if (!previous || /%/.test(previous) || looksLikePerformanceLine(previous)) continue;
+    const candidate = extractName(previous);
+    if (isUsableName(candidate)) return candidate;
+  }
+
+  return direct;
+}
+
+function isUsableName(name: string) {
+  if (!name) return false;
+  if (!/[A-Za-z가-힣]/.test(name)) return false;
+  if (/^[\d\s,.$₩원KRWUSD달러]+$/i.test(name)) return false;
+  return true;
 }
 
 function looksLikePerformanceLine(line: string) {

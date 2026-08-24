@@ -336,22 +336,99 @@ function loadOcrScript() {
 
 async function readImageText(file: File, onProgress: (progress: number) => void) {
   await loadOcrScript();
+  const images = await buildOcrImages(file);
   const tesseract = (window as typeof window & {
     Tesseract?: {
       recognize: (
-        image: File,
+        image: File | Blob,
         language: string,
         options?: { logger?: (message: { status?: string; progress?: number }) => void },
       ) => Promise<{ data?: { text?: string } }>;
     };
   }).Tesseract;
   if (!tesseract?.recognize) throw new Error("OCR unavailable");
-  const result = await tesseract.recognize(file, "kor+eng", {
-    logger: (message) => {
-      if (message.status?.includes("recognizing")) onProgress(Math.round((message.progress ?? 0) * 100));
-    },
+  const texts: string[] = [];
+  for (let index = 0; index < images.length; index += 1) {
+    const image = images[index];
+    const result = await tesseract.recognize(image, "kor+eng", {
+      logger: (message) => {
+        if (message.status?.includes("recognizing")) {
+          onProgress(Math.round(((index + (message.progress ?? 0)) / images.length) * 100));
+        }
+      },
+    });
+    const text = result.data?.text ?? "";
+    texts.push(text);
+    const rows = parseCaptureText(texts.join("\n"));
+    const usefulNames = rows.filter((row) => /[가-힣]{2,}|^[A-Z.]{1,8}$/i.test(row.name.trim()));
+    if (usefulNames.length >= 2) break;
+  }
+  return texts.join("\n");
+}
+
+async function buildOcrImages(file: File): Promise<(Blob | File)[]> {
+  const bitmap = await createImageBitmap(file);
+  const legendCrop = {
+    x: Math.round(bitmap.width * 0.11),
+    y: Math.round(bitmap.height * 0.42),
+    width: Math.round(bitmap.width * 0.84),
+    height: Math.round(bitmap.height * 0.36),
+  };
+  const wideCrop = {
+    x: Math.round(bitmap.width * 0.04),
+    y: Math.round(bitmap.height * 0.38),
+    width: Math.round(bitmap.width * 0.92),
+    height: Math.round(bitmap.height * 0.45),
+  };
+
+  return [
+    await renderOcrCrop(bitmap, legendCrop, 2.8, 205),
+    await renderOcrCrop(bitmap, wideCrop, 2.2, 195),
+    file,
+  ];
+}
+
+async function renderOcrCrop(
+  bitmap: ImageBitmap,
+  crop: { x: number; y: number; width: number; height: number },
+  scale: number,
+  threshold: number,
+) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(crop.width * scale);
+  canvas.height = Math.round(crop.height * scale);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("Canvas unavailable");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bitmap, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
+
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const red = image.data[index];
+    const green = image.data[index + 1];
+    const blue = image.data[index + 2];
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    const saturation = max === 0 ? 0 : (max - min) / max;
+    const luma = red * 0.299 + green * 0.587 + blue * 0.114;
+    const isColorSwatch = saturation > 0.28 && luma < 235;
+    const value = !isColorSwatch && luma < threshold ? 0 : 255;
+    image.data[index] = value;
+    image.data[index + 1] = value;
+    image.data[index + 2] = value;
+    image.data[index + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Canvas export failed"));
+    }, "image/png");
   });
-  return result.data?.text ?? "";
 }
 
 function localize(label: string, lang: Lang) {
