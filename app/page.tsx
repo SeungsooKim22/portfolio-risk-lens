@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { determinePortfolioBadges, determineRiskCharacter } from "./lib/characterEngine";
 
 type Lang = "ko" | "en";
 
@@ -30,6 +31,8 @@ const labels = {
     save: "이미지 저장",
     share: "바로 공유",
     story: "내 포트폴리오 성향",
+    investorType: "당신의 투자자 유형은",
+    earnedBadges: "획득한 칭호",
     score: "리스크 점수",
     style: "투자 성향",
     mainRisk: "가장 눈에 띄는 위험",
@@ -57,6 +60,8 @@ const labels = {
     save: "Save image",
     share: "Share",
     story: "Portfolio persona",
+    investorType: "Your investor type",
+    earnedBadges: "Badges earned",
     score: "Risk score",
     style: "Investor style",
     mainRisk: "Main risk",
@@ -110,6 +115,16 @@ const library: Record<string, Omit<Holding, "ticker" | "weight">> = {
   AMD: { name: "AMD", asset: "US Equity", sector: "Technology", region: "United States", volatility: 48, stress: { techSelloff: -34, rateShock: -14, recession: -28, dollarDrop: -3 } },
   AVGO: { name: "Broadcom", asset: "US Equity", sector: "Technology", region: "United States", volatility: 31, stress: { techSelloff: -27, rateShock: -10, recession: -21, dollarDrop: -3 } },
   TSM: { name: "TSMC", asset: "Global Equity", sector: "Technology", region: "International", volatility: 33, stress: { techSelloff: -30, rateShock: -10, recession: -23, dollarDrop: 2 } },
+  VOO: { name: "Vanguard S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
+  IVV: { name: "iShares Core S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
+  VT: { name: "Total World Stock ETF", asset: "Global Equity ETF", sector: "Broad Market", region: "Global", volatility: 18, stress: { techSelloff: -14, rateShock: -6, recession: -20, dollarDrop: 2 } },
+  TQQQ: { name: "ProShares UltraPro QQQ", asset: "Leveraged ETF", sector: "Technology", region: "United States", volatility: 72, stress: { techSelloff: -58, rateShock: -28, recession: -55, dollarDrop: -5 } },
+  SOXL: { name: "Direxion Daily Semiconductor Bull 3X", asset: "Leveraged ETF", sector: "Technology", region: "United States", volatility: 88, stress: { techSelloff: -65, rateShock: -32, recession: -60, dollarDrop: -5 } },
+  UPRO: { name: "ProShares UltraPro S&P500", asset: "Leveraged ETF", sector: "Broad Market", region: "United States", volatility: 58, stress: { techSelloff: -42, rateShock: -21, recession: -55, dollarDrop: -4 } },
+  BRK: { name: "Berkshire Hathaway", asset: "US Equity", sector: "Financials", region: "United States", volatility: 18, stress: { techSelloff: -8, rateShock: -4, recession: -16, dollarDrop: -2 } },
+  "BRK.B": { name: "Berkshire Hathaway", asset: "US Equity", sector: "Financials", region: "United States", volatility: 18, stress: { techSelloff: -8, rateShock: -4, recession: -16, dollarDrop: -2 } },
+  PLTR: { name: "Palantir", asset: "US Equity", sector: "Technology", region: "United States", volatility: 58, stress: { techSelloff: -36, rateShock: -18, recession: -35, dollarDrop: -3 } },
+  ABCL: { name: "AbCellera", asset: "US Equity", sector: "Health Care", region: "United States", volatility: 68, stress: { techSelloff: -22, rateShock: -16, recession: -40, dollarDrop: -2 } },
 };
 
 const aliases: Record<string, string> = {
@@ -173,6 +188,22 @@ const aliases: Record<string, string> = {
   broadcom: "AVGO",
   tsmc: "TSM",
   대만반도체: "TSM",
+  voo: "VOO",
+  ivv: "IVV",
+  vt: "VT",
+  tqqq: "TQQQ",
+  soxl: "SOXL",
+  upro: "UPRO",
+  brk: "BRK",
+  "brk.b": "BRK.B",
+  버크셔: "BRK.B",
+  버크셔해서웨이: "BRK.B",
+  pltr: "PLTR",
+  팔란티어: "PLTR",
+  palantir: "PLTR",
+  abcl: "ABCL",
+  앱셀레라: "ABCL",
+  abcellera: "ABCL",
   비트코인: "BTC",
   bitcoin: "BTC",
   금: "GLD",
@@ -389,8 +420,17 @@ export default function Home() {
   const defensiveWeight = normalized
     .filter((item) => ["Bonds", "Long Bonds", "Commodity", "Cash"].includes(item.asset))
     .reduce((sum, item) => sum + item.weight, 0);
-  const style = getStyle(riskScore, lang, topThree, defensiveWeight);
   const tone = getTone(riskScore);
+  const metrics = {
+    riskScore,
+    topHolding,
+    topThree,
+    volatility,
+    defensiveWeight,
+    positionCount: normalized.length,
+  };
+  const personality = determineRiskCharacter(metrics, lang);
+  const badges = determinePortfolioBadges(normalized, metrics, lang);
   const knownSectors = sectors.filter(([label]) => !isUnknownLabel(label));
   const unknownWeight = sectors.find(([label]) => isUnknownLabel(label))?.[1] ?? 0;
   const mainRisk = getMainRisk({
@@ -466,20 +506,30 @@ export default function Home() {
     ctx.font = "800 42px Arial";
     ctx.fillStyle = tone.accent;
     ctx.fillText(`/100 ${t.score}`, 325, 330);
+    ctx.fillStyle = tone.muted;
+    ctx.font = "800 34px Arial";
+    ctx.fillText(t.investorType, 104, 430);
     ctx.fillStyle = tone.ink;
-    ctx.font = "800 78px Arial";
-    wrapText(ctx, style, 104, 455, 820, 86);
+    ctx.font = "800 74px Arial";
+    wrapText(ctx, personality.name, 104, 525, 820, 82);
+    ctx.font = "700 34px Arial";
+    wrapText(ctx, `"${personality.quote}"`, 104, 660, 820, 42);
 
-    ctx.fillStyle = tone.cardSoft;
-    ctx.fillRect(104, 680, 872, 230);
-    ctx.fillStyle = tone.accentSoft;
-    ctx.font = "800 32px Arial";
-    ctx.fillText(t.mainRisk, 148, 755);
     ctx.fillStyle = tone.ink;
-    ctx.font = "800 60px Arial";
-    wrapText(ctx, mainRisk, 148, 835, 760, 66);
+    ctx.font = "800 34px Arial";
+    ctx.fillText(t.earnedBadges, 104, 780);
+    badges.slice(0, 3).forEach((badge, index) => {
+      const y = 825 + index * 116;
+      ctx.fillStyle = tone.cardSoft;
+      ctx.fillRect(104, y, 872, 92);
+      ctx.fillStyle = tone.ink;
+      ctx.font = "800 30px Arial";
+      ctx.fillText(`${badge.emoji} ${badge.title}`, 132, y + 38);
+      ctx.font = "500 23px Arial";
+      ctx.fillText(badge.description, 132, y + 70);
+    });
 
-    const statY = 1035;
+    const statY = 1185;
     [
       [t.top3, fmt(topThree)],
       [t.largest, topHolding ? `${topHolding.ticker} ${fmt(topHolding.weight)}` : "-"],
@@ -497,10 +547,10 @@ export default function Home() {
 
     ctx.fillStyle = tone.ink;
     ctx.font = "800 34px Arial";
-    ctx.fillText(t.scenarios, 104, 1320);
+    ctx.fillText(t.scenarios, 104, 1480);
     ctx.font = "700 34px Arial";
     scenarios.slice(0, 3).forEach(([label, value], index) => {
-      const y = 1400 + index * 96;
+      const y = 1560 + index * 90;
       ctx.fillStyle = tone.muted;
       ctx.fillText(label, 104, y);
       ctx.fillStyle = value < 0 ? tone.warning : tone.accentSoft;
@@ -525,7 +575,7 @@ export default function Home() {
       if (!blob) return;
       const file = new File([blob], "portfolio-risk-lens.png", { type: "image/png" });
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title: t.brand, text: style, files: [file] });
+        await navigator.share({ title: t.brand, text: personality.name, files: [file] });
       } else {
         alert(t.noShare);
       }
@@ -576,8 +626,8 @@ export default function Home() {
             <StoryCard
               t={t}
               riskScore={riskScore}
-              style={style}
-              mainRisk={mainRisk}
+              personality={personality}
+              badges={badges}
               topThree={topThree}
               topHolding={topHolding}
               volatility={volatility}
@@ -591,8 +641,8 @@ export default function Home() {
                   <h2 className="mt-2 text-4xl font-black">{riskScore}/100</h2>
                 </div>
                 <div className="rounded-md px-4 py-3 text-right" style={{ backgroundColor: tone.cardSoft }}>
-                  <p className="text-xs" style={{ color: tone.muted }}>{t.style}</p>
-                  <p className="max-w-56 text-xl font-black" style={{ color: tone.accent }}>{style}</p>
+                  <p className="text-xs" style={{ color: tone.muted }}>{t.story}</p>
+                  <p className="max-w-56 text-xl font-black" style={{ color: tone.accent }}>{personality.name}</p>
                 </div>
               </div>
               <div className="mt-5 h-4 rounded-full bg-black/10">
@@ -604,8 +654,12 @@ export default function Home() {
                 <Metric label={t.vol} value={fmt(volatility)} tone={tone} />
               </div>
               <div className="mt-5 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
-                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.mainRisk}</p>
-                <p className="mt-2 text-2xl font-black">{mainRisk}</p>
+                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.earnedBadges}</p>
+                <div className="mt-3 grid gap-2">
+                  {badges.map((badge) => (
+                    <p key={badge.id} className="text-sm font-black">{badge.emoji} {badge.title}</p>
+                  ))}
+                </div>
               </div>
             </section>
           </section>
@@ -771,8 +825,8 @@ function Metric({ label, value, tone }: { label: string; value: string; tone: Re
 function StoryCard({
   t,
   riskScore,
-  style,
-  mainRisk,
+  personality,
+  badges,
   topThree,
   topHolding,
   volatility,
@@ -781,8 +835,8 @@ function StoryCard({
 }: {
   t: (typeof labels)[Lang];
   riskScore: number;
-  style: string;
-  mainRisk: string;
+  personality: { name: string; quote: string };
+  badges: { id: string; emoji: string; title: string; description: string }[];
   topThree: number;
   topHolding: Holding | null;
   volatility: number;
@@ -796,17 +850,26 @@ function StoryCard({
         <p className="mt-8 text-sm font-black uppercase tracking-[0.16em]" style={{ color: tone.accentSoft }}>{t.story}</p>
         <p className="mt-5 text-7xl font-black tracking-normal">{riskScore}</p>
         <p className="text-2xl font-black" style={{ color: tone.accent }}>/100 {t.score}</p>
-        <h2 className="mt-8 text-4xl font-black leading-tight">{style}</h2>
-        <div className="mt-8 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
-          <p className="text-xs font-black uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.mainRisk}</p>
-          <p className="mt-2 break-words text-2xl font-black">{mainRisk}</p>
+        <p className="mt-7 text-sm font-black" style={{ color: tone.muted }}>{t.investorType}</p>
+        <h2 className="mt-2 text-4xl font-black leading-tight">{personality.name}</h2>
+        <p className="mt-3 text-base font-bold leading-6" style={{ color: tone.muted }}>&quot;{personality.quote}&quot;</p>
+        <div className="mt-6 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
+          <p className="text-xs font-black uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.earnedBadges}</p>
+          <div className="mt-3 grid gap-2">
+            {badges.slice(0, 3).map((badge) => (
+              <div key={badge.id} className="rounded-md bg-white/70 p-2">
+                <p className="text-sm font-black">{badge.emoji} {badge.title}</p>
+                <p className="mt-1 text-[11px] font-bold" style={{ color: tone.muted }}>{badge.description}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2 text-[#10231f]">
+        <div className="mt-4 grid grid-cols-3 gap-2 text-[#10231f]">
           <SmallStat label={t.top3} value={fmt(topThree)} tone={tone} />
           <SmallStat label={t.largest} value={topHolding ? topHolding.ticker : "-"} tone={tone} />
           <SmallStat label={t.vol} value={fmt(volatility)} tone={tone} />
         </div>
-        <div className="mt-7 space-y-3">
+        <div className="mt-5 space-y-2">
           {scenarios.slice(0, 3).map(([label, value]) => (
             <div key={label} className="flex justify-between gap-3 text-sm font-black">
               <span style={{ color: tone.muted }}>{label}</span>
