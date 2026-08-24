@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { determinePortfolioBadges, determineRiskCharacter } from "./lib/characterEngine";
+import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio";
+import { groupWeights } from "../lib/analytics/calculateFeatures";
+import { generateBadges } from "../lib/personality/generateBadges";
+import { generateCharacter } from "../lib/personality/generateCharacter";
 
 type Lang = "ko" | "en";
 
@@ -46,6 +49,8 @@ const labels = {
     scenarios: "하락장 시뮬레이션",
     readout: "간단한 분석",
     feedback: "리스크 줄이는 힌트",
+    whyScore: "왜 이 점수인가요?",
+    total: "총점",
     details: "상세 분석",
     notice: "",
     placeholder: "예: AAPL 25%",
@@ -75,6 +80,8 @@ const labels = {
     scenarios: "Downside simulator",
     readout: "Quick read",
     feedback: "Risk-reduction ideas",
+    whyScore: "Why this score?",
+    total: "Total",
     details: "Detailed view",
     notice: "Educational estimate only. Not financial advice.",
     placeholder: "Example: AAPL 25%",
@@ -353,6 +360,12 @@ function groupBy(items: Holding[], key: keyof Pick<Holding, "asset" | "sector" |
   return Object.entries(grouped).sort((a, b) => b[1] - a[1]);
 }
 
+function groupedForUi(groups: Record<string, number>, lang: Lang) {
+  return Object.entries(groups)
+    .map(([label, value]) => [localize(label, lang), value] as [string, number])
+    .sort((a, b) => b[1] - a[1]);
+}
+
 function weighted(items: Holding[], selector: (item: Holding) => number) {
   const total = items.reduce((sum, item) => sum + item.weight, 0) || 1;
   return items.reduce((sum, item) => sum + selector(item) * (item.weight / total), 0);
@@ -440,51 +453,23 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>("ko");
   const t = labels[lang];
 
-  const holdings = useMemo(() => parsePortfolio(input), [input]);
-  const totalWeight = holdings.reduce((sum, item) => sum + item.weight, 0);
-  const normalized = holdings.map((item) => ({ ...item, weight: (item.weight / (totalWeight || 1)) * 100 }));
-  const sectors = groupBy(normalized, "sector", lang);
-  const assets = groupBy(normalized, "asset", lang);
-  const regions = groupBy(normalized, "region", lang);
+  const analysis = useMemo(() => analyzePortfolioText(input), [input]);
+  const normalized = analysis.portfolio.positions;
+  const sectors = groupedForUi(groupWeights(normalized, (item) => item.security.sector || "Unknown"), lang);
+  const assets = groupedForUi(groupWeights(normalized, (item) => item.security.assetLabel || item.security.assetType), lang);
+  const regions = groupedForUi(groupWeights(normalized, (item) => item.security.region || "Unknown"), lang);
   const sorted = [...normalized].sort((a, b) => b.weight - a.weight);
   const topHolding = sorted[0] ?? null;
-  const topThree = sorted.slice(0, 3).reduce((sum, item) => sum + item.weight, 0);
-  const volatility = weighted(normalized, (item) => item.volatility);
-  const rawSectorGroups = groupBy(normalized, "sector", "en").filter(([label]) => !isUnknownLabel(label));
-  const topSectorWeight = rawSectorGroups[0]?.[1] ?? 0;
-  const concentrationScore = Math.min(
-    100,
-    (topHolding?.weight || 0) * 0.9 + topThree * 0.25 + topSectorWeight * 0.45,
-  );
-  const riskScore = Math.round(Math.min(100, volatility * 1.35 + concentrationScore * 0.3));
-  const defensiveWeight = normalized
-    .filter((item) => ["Bonds", "Long Bonds", "Commodity", "Cash"].includes(item.asset))
-    .reduce((sum, item) => sum + item.weight, 0);
+  const topThree = analysis.features.topThreeWeight;
+  const volatility = analysis.features.annualizedVolatility;
+  const riskScore = Number(analysis.risk.score.toFixed(1));
+  const defensiveWeight = analysis.features.defensiveTilt;
   const tone = getTone(riskScore);
-  const metrics = {
-    riskScore,
-    topHolding,
-    topThree,
-    volatility,
-    defensiveWeight,
-    positionCount: normalized.length,
-  };
-  const personality = determineRiskCharacter(metrics, lang);
-  const badges = determinePortfolioBadges(normalized, metrics, lang);
+  const personality = generateCharacter(normalized, analysis.features, analysis.risk, lang);
+  const badges = generateBadges(normalized, analysis.features, analysis.risk, lang);
   const knownSectors = sectors.filter(([label]) => !isUnknownLabel(label));
-  const unknownWeight = sectors.find(([label]) => isUnknownLabel(label))?.[1] ?? 0;
-  const mainRisk = getMainRisk({
-    lang,
-    topHolding,
-    topSector: knownSectors[0],
-    unknownWeight,
-  });
-  const scenarios = [
-    [lang === "ko" ? "나스닥 -20% 하락 시" : "If Nasdaq falls 20%", weighted(normalized, (item) => item.stress.techSelloff)],
-    [lang === "ko" ? "금리 1%p 상승 시" : "If rates rise 1%", weighted(normalized, (item) => item.stress.rateShock)],
-    [lang === "ko" ? "경기침체 시" : "In a recession", weighted(normalized, (item) => item.stress.recession)],
-    [lang === "ko" ? "달러 약세 시" : "If USD weakens", weighted(normalized, (item) => item.stress.dollarDrop)],
-  ] as const;
+  const unknownWeight = analysis.portfolio.unknownWeight;
+  const scenarios = analysis.scenarios.map((scenario) => [lang === "ko" ? scenario.labelKo : scenario.labelEn, scenario.value] as const);
 
   const insights = [
     unknownWeight > 35
@@ -496,8 +481,8 @@ export default function Home() {
         ? `${topHolding.displayName} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
         : `${topHolding.displayName} alone drives ${fmt(topHolding.weight)} of the portfolio.`
       : lang === "ko"
-        ? "단일 종목 집중도는 비교적 안정적이에요."
-        : "Single-name concentration is controlled.",
+        ? `실질 분산 종목 수는 약 ${analysis.features.effectiveNumberOfPositions.toFixed(1)}개예요.`
+        : `Effective diversification is about ${analysis.features.effectiveNumberOfPositions.toFixed(1)} positions.`,
     sectors[0] && sectors[0][1] > 45
       ? lang === "ko"
         ? `${sectors[0][0]} 노출이 ${fmt(sectors[0][1])}로 높은 편이에요.`
@@ -515,7 +500,7 @@ export default function Home() {
   ];
   const feedback = getFeedback({
     lang,
-    topHolding,
+    topHolding: topHolding ? { displayName: topHolding.displayName, weight: topHolding.weight } : null,
     topSector: knownSectors[0],
     unknownWeight,
     topThree,
@@ -701,6 +686,21 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+              <details className="mt-5 rounded-md p-4" style={{ backgroundColor: tone.stat }}>
+                <summary className="cursor-pointer text-sm font-black" style={{ color: tone.accentSoft }}>{t.whyScore}</summary>
+                <div className="mt-4 grid gap-2">
+                  {analysis.risk.breakdown.map((item) => (
+                    <div key={item.key} className="flex items-center justify-between gap-3 text-sm font-bold">
+                      <span>{lang === "ko" ? item.labelKo : item.labelEn}</span>
+                      <span>{item.contribution.toFixed(1)}</span>
+                    </div>
+                  ))}
+                  <div className="mt-2 flex items-center justify-between border-t border-black/10 pt-3 text-sm font-black">
+                    <span>{t.total}</span>
+                    <span>{riskScore.toFixed(1)}</span>
+                  </div>
+                </div>
+              </details>
             </section>
           </section>
 
@@ -768,7 +768,7 @@ function getMainRisk({
   unknownWeight,
 }: {
   lang: Lang;
-  topHolding: Holding | null;
+  topHolding: { displayName: string; weight: number } | null;
   topSector?: [string, number];
   unknownWeight: number;
 }) {
@@ -878,7 +878,7 @@ function StoryCard({
   personality: { name: string; quote: string };
   badges: { id: string; emoji: string; title: string; description: string }[];
   topThree: number;
-  topHolding: Holding | null;
+  topHolding: { displayName: string; weight: number } | null;
   volatility: number;
   scenarios: readonly (readonly [string, number])[];
   tone: ReturnType<typeof getTone>;
