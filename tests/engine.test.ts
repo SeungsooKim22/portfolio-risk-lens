@@ -3,6 +3,7 @@ import test from "node:test";
 import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio.ts";
 import { generateBadges } from "../lib/personality/generateBadges.ts";
 import { generateCharacter } from "../lib/personality/generateCharacter.ts";
+import { candidatesToManualInput, parseCaptureText } from "../lib/portfolio/captureImport.ts";
 
 function summarize(input: string) {
   const analysis = analyzePortfolioText(input);
@@ -91,4 +92,17 @@ test("ETF-heavy user portfolio resolves WMT SCHD JEPQ and avoids single-stock tr
   assert.ok(analysis.portfolio.positions.some((item) => item.ticker === "JEPQ"));
   assert.ok(analysis.features.concentration < 15);
   assert.ok(analysis.risk.score < 45);
+});
+
+test("capture parser extracts percent rows from brokerage-like text", () => {
+  const rows = parseCaptureText("QQQ 48%\nSPYM 19.7%\n삼성전자 17.6%\n하이닉스 11.4%\n수익률 3.2%");
+  assert.deepEqual(rows.map((row) => row.name), ["QQQ", "SPYM", "삼성전자", "하이닉스"]);
+  assert.deepEqual(rows.map((row) => row.weight), [48, 19.7, 17.6, 11.4]);
+});
+
+test("capture parser can derive weights from amounts", () => {
+  const rows = parseCaptureText("QQQ 4,800,000원\n삼성전자 1,700,000원\n현금 500,000원");
+  const input = candidatesToManualInput(rows);
+  assert.match(input, /QQQ 68\.57%/);
+  assert.match(input, /삼성전자 24\.29%/);
 });

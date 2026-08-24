@@ -5,6 +5,7 @@ import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio";
 import { groupWeights } from "../lib/analytics/calculateFeatures";
 import { generateBadges } from "../lib/personality/generateBadges";
 import { generateCharacter } from "../lib/personality/generateCharacter";
+import { candidatesToManualInput, parseCaptureText, type CaptureCandidate } from "../lib/portfolio/captureImport.ts";
 import type { PortfolioFeatures } from "../types/analytics.ts";
 
 type Lang = "ko" | "en";
@@ -32,6 +33,20 @@ const labels = {
     headline: "내 포트폴리오 성향을 한 장으로 보여주세요.",
     subhead: "종목과 비중을 넣으면 집중도, 섹터 쏠림, 위기 시나리오를 보기 쉬운 공유 카드와 상세 분석으로 정리합니다.",
     input: "포트폴리오 입력",
+    capture: "캡처 업로드",
+    captureCta: "이미지 선택",
+    captureReading: "이미지를 읽는 중",
+    captureReady: "후보를 확인해 주세요",
+    captureFallback: "자동 읽기에 실패했어요. 캡처에서 복사한 텍스트를 붙여넣어도 됩니다.",
+    captureEmpty: "종목과 비중을 찾지 못했어요. 아래에 텍스트를 붙여넣거나 직접 추가해 주세요.",
+    capturePrivacy: "이미지는 브라우저에서만 처리하고 저장하지 않아요.",
+    ocrText: "읽힌 텍스트",
+    findCandidates: "후보 찾기",
+    addRow: "행 추가",
+    applyCapture: "입력 칸에 반영",
+    remove: "삭제",
+    name: "종목",
+    weight: "비중",
     sample: "샘플 불러오기",
     save: "이미지 저장",
     share: "바로 공유",
@@ -63,6 +78,20 @@ const labels = {
     headline: "Turn your allocation into a shareable risk snapshot.",
     subhead: "Enter tickers and weights to see concentration, exposures, stress scenarios, and a clean visual card.",
     input: "Portfolio input",
+    capture: "Upload screenshot",
+    captureCta: "Choose image",
+    captureReading: "Reading image",
+    captureReady: "Review the detected rows",
+    captureFallback: "Automatic reading failed. You can paste copied screenshot text below.",
+    captureEmpty: "No holdings were detected. Paste text below or add rows manually.",
+    capturePrivacy: "The image is processed in your browser and is not stored.",
+    ocrText: "Detected text",
+    findCandidates: "Find rows",
+    addRow: "Add row",
+    applyCapture: "Apply to input",
+    remove: "Remove",
+    name: "Name",
+    weight: "Weight",
     sample: "Load sample",
     save: "Save image",
     share: "Share",
@@ -283,6 +312,47 @@ const translations: Record<string, string> = {
 };
 
 const sampleInput = "AAPL 25%\nMSFT 20%\nNVDA 20%\nSPY 20%\nTLT 10%\nGLD 5%";
+const tesseractScriptSrc = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+
+function loadOcrScript() {
+  const win = window as typeof window & { Tesseract?: unknown };
+  if (win.Tesseract) return Promise.resolve();
+  const existing = document.querySelector<HTMLScriptElement>(`script[src="${tesseractScriptSrc}"]`);
+  if (existing) {
+    return new Promise<void>((resolve, reject) => {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("OCR script failed")), { once: true });
+    });
+  }
+  return new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = tesseractScriptSrc;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("OCR script failed"));
+    document.head.appendChild(script);
+  });
+}
+
+async function readImageText(file: File, onProgress: (progress: number) => void) {
+  await loadOcrScript();
+  const tesseract = (window as typeof window & {
+    Tesseract?: {
+      recognize: (
+        image: File,
+        language: string,
+        options?: { logger?: (message: { status?: string; progress?: number }) => void },
+      ) => Promise<{ data?: { text?: string } }>;
+    };
+  }).Tesseract;
+  if (!tesseract?.recognize) throw new Error("OCR unavailable");
+  const result = await tesseract.recognize(file, "kor+eng", {
+    logger: (message) => {
+      if (message.status?.includes("recognizing")) onProgress(Math.round((message.progress ?? 0) * 100));
+    },
+  });
+  return result.data?.text ?? "";
+}
 
 function localize(label: string, lang: Lang) {
   return lang === "ko" ? translations[label] ?? label : label;
@@ -452,6 +522,11 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
 export default function Home() {
   const [input, setInput] = useState(sampleInput);
   const [lang, setLang] = useState<Lang>("ko");
+  const [capturePreview, setCapturePreview] = useState<string | null>(null);
+  const [captureText, setCaptureText] = useState("");
+  const [captureRows, setCaptureRows] = useState<CaptureCandidate[]>([]);
+  const [captureStatus, setCaptureStatus] = useState("");
+  const [isReadingCapture, setIsReadingCapture] = useState(false);
   const t = labels[lang];
 
   const analysis = useMemo(() => analyzePortfolioText(input), [input]);
@@ -629,6 +704,42 @@ export default function Home() {
     });
   }
 
+  async function handleCaptureUpload(file?: File) {
+    if (!file) return;
+    setCapturePreview(URL.createObjectURL(file));
+    setCaptureText("");
+    setCaptureRows([]);
+    setIsReadingCapture(true);
+    setCaptureStatus(`${t.captureReading} 0%`);
+    try {
+      const text = await readImageText(file, (progress) => setCaptureStatus(`${t.captureReading} ${progress}%`));
+      const rows = parseCaptureText(text);
+      setCaptureText(text);
+      setCaptureRows(rows);
+      setCaptureStatus(rows.length > 0 ? t.captureReady : t.captureEmpty);
+    } catch {
+      setCaptureStatus(t.captureFallback);
+    } finally {
+      setIsReadingCapture(false);
+    }
+  }
+
+  function refreshCaptureRows(text: string) {
+    setCaptureText(text);
+    const rows = parseCaptureText(text);
+    setCaptureRows(rows);
+    setCaptureStatus(rows.length > 0 ? t.captureReady : t.captureEmpty);
+  }
+
+  function updateCaptureRow(index: number, patch: Partial<CaptureCandidate>) {
+    setCaptureRows((rows) => rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  }
+
+  function applyCaptureRows() {
+    const nextInput = candidatesToManualInput(captureRows);
+    if (nextInput) setInput(nextInput);
+  }
+
   return (
     <main className="min-h-screen text-[#10231f]" style={{ backgroundColor: tone.page }}>
       <section className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8">
@@ -659,6 +770,77 @@ export default function Home() {
               spellCheck={false}
               className="mt-3 min-h-48 w-full resize-none rounded-md border border-[#d6cec0] bg-[#fffdf8] p-4 font-mono text-sm leading-7 outline-none transition focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
             />
+            <div className="mt-4 rounded-md border border-[#d6cec0] bg-[#f8f5ee] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black">{t.capture}</p>
+                  <p className="mt-1 text-xs font-bold text-[#6d7b76]">{t.capturePrivacy}</p>
+                </div>
+                <label htmlFor="capture-upload" className="cursor-pointer rounded-md bg-[#2f7d6d] px-3 py-2 text-sm font-black text-white transition hover:bg-[#286c5e]">
+                  {t.captureCta}
+                </label>
+                <input
+                  id="capture-upload"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleCaptureUpload(event.target.files?.[0]);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </div>
+              {captureStatus && <p className="mt-3 text-xs font-black text-[#42665c]">{captureStatus}</p>}
+              {capturePreview && (
+                <img
+                  src={capturePreview}
+                  alt=""
+                  className="mt-3 max-h-48 w-full rounded-md border border-[#d6cec0] object-contain"
+                />
+              )}
+              {(captureText || capturePreview) && (
+                <div className="mt-3 grid gap-3">
+                  <textarea
+                    value={captureText}
+                    onChange={(event) => setCaptureText(event.target.value)}
+                    placeholder={t.ocrText}
+                    className="min-h-24 w-full resize-none rounded-md border border-[#d6cec0] bg-white p-3 text-xs leading-5 outline-none focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => refreshCaptureRows(captureText)} className="rounded-md bg-[#10231f] px-3 py-2 text-xs font-black text-white">{t.findCandidates}</button>
+                    <button type="button" onClick={() => setCaptureRows((rows) => [...rows, { name: "", weight: 0, source: "percent", confidence: "low" }])} className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#10231f] ring-1 ring-[#d6cec0]">{t.addRow}</button>
+                    <button type="button" onClick={applyCaptureRows} disabled={captureRows.length === 0 || isReadingCapture} className="rounded-md bg-[#f2b84b] px-3 py-2 text-xs font-black text-[#10231f] disabled:cursor-not-allowed disabled:opacity-50">{t.applyCapture}</button>
+                  </div>
+                </div>
+              )}
+              {captureRows.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-md border border-[#d6cec0] bg-white">
+                  <div className="grid grid-cols-[1fr_92px_58px] bg-[#efe9dd] px-3 py-2 text-xs font-black text-[#52655f]">
+                    <span>{t.name}</span>
+                    <span>{t.weight}</span>
+                    <span />
+                  </div>
+                  {captureRows.map((row, index) => (
+                    <div key={`${row.name}-${index}`} className="grid grid-cols-[1fr_92px_58px] gap-2 border-t border-[#eee6da] px-3 py-2">
+                      <input
+                        value={row.name}
+                        onChange={(event) => updateCaptureRow(index, { name: event.target.value })}
+                        className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
+                      />
+                      <input
+                        value={Number.isFinite(row.weight) ? row.weight.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") : ""}
+                        inputMode="decimal"
+                        onChange={(event) => updateCaptureRow(index, { weight: Number.parseFloat(event.target.value) || 0 })}
+                        className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
+                      />
+                      <button type="button" onClick={() => setCaptureRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} className="rounded bg-[#f6eee4] text-xs font-black text-[#8a4630]">
+                        {t.remove}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="mt-4 grid grid-cols-3 gap-3">
               <button onClick={() => setInput(sampleInput)} className="rounded-md bg-[#10231f] px-3 py-3 text-sm font-black text-white transition hover:bg-[#1c3c35]">{t.sample}</button>
               <button onClick={saveImage} className="rounded-md bg-[#f2b84b] px-3 py-3 text-sm font-black text-[#10231f] transition hover:bg-[#e6a92e]">{t.save}</button>
