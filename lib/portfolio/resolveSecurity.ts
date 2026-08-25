@@ -76,5 +76,5 @@ export function resolveSecurity(rawName: string): Pick<ResolvedPosition, "ticker
 }
 
 function displayNameFor(rawName: string, security: Security) {
-  return /^[A-Z0-9.\-]+$/.test(rawName.trim()) ? security.companyName : rawName.trim();
+  return /^[A-Z0-9.-]+$/.test(rawName.trim()) ? security.companyName : rawName.trim();
 }

@@ -5,8 +5,10 @@ import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio";
 import { groupWeights } from "../lib/analytics/calculateFeatures";
 import { generateBadges } from "../lib/personality/generateBadges";
 import { generateCharacter } from "../lib/personality/generateCharacter";
+import { ScreenshotPortfolioImporter } from "../lib/importers/ScreenshotPortfolioImporter.ts";
 import { candidatesToManualInput, parseCaptureText, type CaptureCandidate } from "../lib/portfolio/captureImport.ts";
 import type { PortfolioFeatures } from "../types/analytics.ts";
+import type { ImportWarning, ResolvedExtractedPosition, UploadedScreenshot } from "../types/screenshotImport.ts";
 
 type Lang = "ko" | "en";
 
@@ -33,20 +35,32 @@ const labels = {
     headline: "내 포트폴리오 성향을 한 장으로 보여주세요.",
     subhead: "종목과 비중을 넣으면 집중도, 섹터 쏠림, 위기 시나리오를 보기 쉬운 공유 카드와 상세 분석으로 정리합니다.",
     input: "포트폴리오 입력",
+    inputMethod: "추가 방식",
+    manual: "직접 입력",
     capture: "캡처 업로드",
     captureCta: "이미지 선택",
+    captureSupport: "JPG, PNG, WEBP를 여러 장 올릴 수 있어요. 종목이 한 화면에 다 안 보이면 스크롤 캡처를 나눠 올려도 됩니다.",
+    captureCount: "업로드한 이미지",
     captureReading: "이미지를 읽는 중",
-    captureReady: "후보를 확인해 주세요",
+    captureReady: "분석 전에 후보를 확인해 주세요",
     captureFallback: "자동 읽기에 실패했어요. 캡처에서 복사한 텍스트를 붙여넣어도 됩니다.",
     captureEmpty: "종목과 비중을 찾지 못했어요. 아래에 텍스트를 붙여넣거나 직접 추가해 주세요.",
     capturePrivacy: "이미지는 브라우저에서만 처리하고 저장하지 않아요.",
+    brokerAuto: "증권사 자동 인식",
     ocrText: "읽힌 텍스트",
     findCandidates: "후보 찾기",
     addRow: "행 추가",
-    applyCapture: "입력 칸에 반영",
+    applyCapture: "이 포트폴리오 분석하기",
     remove: "삭제",
     name: "종목",
     weight: "비중",
+    marketValue: "평가금액",
+    confidence: "확인 상태",
+    recognized: "인식됨",
+    checkNeeded: "확인 필요",
+    lowConfidence: "낮은 확신",
+    totalAllocation: "감지된 비중 합계",
+    warnings: "확인할 점",
     sample: "샘플 불러오기",
     save: "이미지 저장",
     share: "바로 공유",
@@ -78,20 +92,32 @@ const labels = {
     headline: "Turn your allocation into a shareable risk snapshot.",
     subhead: "Enter tickers and weights to see concentration, exposures, stress scenarios, and a clean visual card.",
     input: "Portfolio input",
+    inputMethod: "Input method",
+    manual: "Enter manually",
     capture: "Upload screenshot",
     captureCta: "Choose image",
+    captureSupport: "Upload JPG, PNG, or WEBP. Multiple screenshots are supported when your holdings span several screens.",
+    captureCount: "Uploaded images",
     captureReading: "Reading image",
-    captureReady: "Review the detected rows",
+    captureReady: "Review before analysis",
     captureFallback: "Automatic reading failed. You can paste copied screenshot text below.",
     captureEmpty: "No holdings were detected. Paste text below or add rows manually.",
     capturePrivacy: "The image is processed in your browser and is not stored.",
+    brokerAuto: "Brokerage auto detect",
     ocrText: "Detected text",
     findCandidates: "Find rows",
     addRow: "Add row",
-    applyCapture: "Apply to input",
+    applyCapture: "Analyze this portfolio",
     remove: "Remove",
     name: "Name",
     weight: "Weight",
+    marketValue: "Market value",
+    confidence: "Confidence",
+    recognized: "Recognized",
+    checkNeeded: "Please check",
+    lowConfidence: "Low confidence",
+    totalAllocation: "Detected total",
+    warnings: "Warnings",
     sample: "Load sample",
     save: "Save image",
     share: "Share",
@@ -431,6 +457,72 @@ async function renderOcrCrop(
   });
 }
 
+async function readImageMetadata(file: File) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const metadata = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return metadata;
+  } catch {
+    return {};
+  }
+}
+
+function captureRowsFromPositions(positions: ResolvedExtractedPosition[]): CaptureCandidate[] {
+  return positions.map((position) => {
+    const confidenceScore = Math.min(position.confidence.overall, position.resolutionConfidence);
+    const hasAttentionWarning = (position.warnings ?? []).some((code) =>
+      ["UNKNOWN_SECURITY", "WEIGHT_NOT_FOUND", "MARKET_VALUE_NOT_FOUND", "POSSIBLE_RETURN_PERCENT_AS_WEIGHT", "DUPLICATE_POSITION"].includes(code),
+    );
+    return {
+      name: position.rawName || position.canonicalTicker || position.displayName,
+      weight: position.weight ?? 0,
+      marketValue: position.marketValue,
+      currency: position.marketValueCurrency,
+      source: position.marketValue !== undefined && position.confidence.weight !== undefined && position.confidence.weight < 0.9 ? "amount" : "percent",
+      confidence: hasAttentionWarning ? "low" : captureConfidenceFromScore(confidenceScore),
+      warnings: position.warnings,
+      sourceScreenshotIds: position.sourceScreenshotIds,
+    };
+  });
+}
+
+function captureConfidenceFromScore(score: number): CaptureCandidate["confidence"] {
+  if (score >= 0.9) return "high";
+  if (score >= 0.7) return "medium";
+  return "low";
+}
+
+function captureConfidenceLabel(confidence: CaptureCandidate["confidence"], lang: Lang) {
+  if (confidence === "high") return lang === "ko" ? "인식됨" : "Recognized";
+  if (confidence === "medium") return lang === "ko" ? "확인 필요" : "Please check";
+  return lang === "ko" ? "낮은 확신" : "Low confidence";
+}
+
+function captureRowClass(confidence: CaptureCandidate["confidence"]) {
+  if (confidence === "high") return "border-[#dceade] bg-white";
+  if (confidence === "medium") return "border-[#f0d49b] bg-[#fff9ea]";
+  return "border-[#efb5a8] bg-[#fff4f0]";
+}
+
+function totalCaptureWeight(rows: CaptureCandidate[]) {
+  return rows.reduce((sum, row) => sum + (Number.isFinite(row.weight) ? row.weight : 0), 0);
+}
+
+function formatCaptureAmount(row: CaptureCandidate) {
+  if (!Number.isFinite(row.marketValue ?? Number.NaN)) return "";
+  const amount = row.marketValue ?? 0;
+  if (row.currency === "USD") return `$${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  return `${Math.round(amount).toLocaleString("ko-KR")}원`;
+}
+
+function captureWarningsForUi(warnings: ImportWarning[], lang: Lang) {
+  return warnings.slice(0, 5).map((item) => {
+    if (lang === "en") return item.message;
+    return item.message;
+  });
+}
+
 function localize(label: string, lang: Lang) {
   return lang === "ko" ? translations[label] ?? label : label;
 }
@@ -599,9 +691,13 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
 export default function Home() {
   const [input, setInput] = useState(sampleInput);
   const [lang, setLang] = useState<Lang>("ko");
-  const [capturePreview, setCapturePreview] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<"manual" | "capture">("manual");
+  const [capturePreviews, setCapturePreviews] = useState<string[]>([]);
   const [captureText, setCaptureText] = useState("");
   const [captureRows, setCaptureRows] = useState<CaptureCandidate[]>([]);
+  const [captureWarnings, setCaptureWarnings] = useState<ImportWarning[]>([]);
+  const [captureTotal, setCaptureTotal] = useState<number | null>(null);
+  const [detectedBrokers, setDetectedBrokers] = useState<string[]>([]);
   const [captureStatus, setCaptureStatus] = useState("");
   const [isReadingCapture, setIsReadingCapture] = useState(false);
   const t = labels[lang];
@@ -616,7 +712,6 @@ export default function Home() {
   const topThree = analysis.features.topThreeWeight;
   const volatility = analysis.features.annualizedVolatility;
   const riskScore = Number(analysis.risk.score.toFixed(1));
-  const defensiveWeight = analysis.features.defensiveTilt;
   const tone = getTone(riskScore);
   const personality = generateCharacter(normalized, analysis.features, analysis.risk, lang);
   const badges = generateBadges(normalized, analysis.features, analysis.risk, lang);
@@ -781,18 +876,48 @@ export default function Home() {
     });
   }
 
-  async function handleCaptureUpload(file?: File) {
-    if (!file) return;
-    setCapturePreview(URL.createObjectURL(file));
+  async function handleCaptureUpload(files?: FileList | File[]) {
+    const selectedFiles = Array.from(files ?? []).filter((file) => /^image\/(png|jpe?g|webp)$/i.test(file.type));
+    if (selectedFiles.length === 0) return;
+    setCapturePreviews(selectedFiles.map((file) => URL.createObjectURL(file)));
     setCaptureText("");
-    setCaptureRows([]);
+    setCaptureRowsAndTotal([]);
+    setCaptureWarnings([]);
+    setDetectedBrokers([]);
     setIsReadingCapture(true);
     setCaptureStatus(`${t.captureReading} 0%`);
     try {
-      const text = await readImageText(file, (progress) => setCaptureStatus(`${t.captureReading} ${progress}%`));
-      const rows = parseCaptureText(text);
-      setCaptureText(text);
-      setCaptureRows(rows);
+      const screenshots: UploadedScreenshot[] = [];
+      const texts: string[] = [];
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        const file = selectedFiles[index];
+        const metadata = await readImageMetadata(file);
+        const text = await readImageText(file, (progress) => {
+          const base = Math.round(((index + progress / 100) / selectedFiles.length) * 100);
+          setCaptureStatus(`${t.captureReading} ${base}%`);
+        });
+        texts.push(text);
+        screenshots.push({
+          id: `shot-${Date.now()}-${index}`,
+          fileName: file.name,
+          mimeType: file.type,
+          ...metadata,
+          text,
+        });
+      }
+      const importer = new ScreenshotPortfolioImporter();
+      const result = await importer.import({ screenshots });
+      const rows = captureRowsFromPositions(result.positions);
+      setCaptureText(texts.join("\n\n---\n\n"));
+      setCaptureRowsAndTotal(rows);
+      setCaptureWarnings(result.warnings);
+      setDetectedBrokers([
+        ...new Set(
+          (result.screenshotSession?.detectedBrokerages ?? [])
+            .map((item) => [item.app, item.broker].filter(Boolean).join(" / "))
+            .filter((item) => item && !item.includes("unknown")),
+        ),
+      ]);
       setCaptureStatus(rows.length > 0 ? t.captureReady : t.captureEmpty);
     } catch {
       setCaptureStatus(t.captureFallback);
@@ -801,20 +926,37 @@ export default function Home() {
     }
   }
 
-  function refreshCaptureRows(text: string) {
+  async function refreshCaptureRows(text: string) {
     setCaptureText(text);
-    const rows = parseCaptureText(text);
-    setCaptureRows(rows);
+    const importer = new ScreenshotPortfolioImporter();
+    const result = await importer.import({
+      screenshots: [{ id: "pasted-text", text }],
+    });
+    const rows = captureRowsFromPositions(result.positions);
+    setCaptureWarnings(result.warnings);
+    setCaptureRowsAndTotal(rows);
     setCaptureStatus(rows.length > 0 ? t.captureReady : t.captureEmpty);
   }
 
   function updateCaptureRow(index: number, patch: Partial<CaptureCandidate>) {
-    setCaptureRows((rows) => rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    setCaptureRows((rows) => {
+      const nextRows = rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch, confidence: "medium" } : row));
+      setCaptureTotal(totalCaptureWeight(nextRows));
+      return nextRows;
+    });
   }
 
   function applyCaptureRows() {
     const nextInput = candidatesToManualInput(captureRows);
-    if (nextInput) setInput(nextInput);
+    if (nextInput) {
+      setInput(nextInput);
+      setInputMode("manual");
+    }
+  }
+
+  function setCaptureRowsAndTotal(rows: CaptureCandidate[]) {
+    setCaptureRows(rows);
+    setCaptureTotal(rows.length > 0 ? totalCaptureWeight(rows) : null);
   }
 
   return (
@@ -839,18 +981,30 @@ export default function Home() {
 
           <section className="rounded-lg border border-[#d6cec0] bg-white p-4 shadow-sm">
             <label htmlFor="portfolio-input" className="text-sm font-black">{t.input}</label>
-            <textarea
-              id="portfolio-input"
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder={t.placeholder}
-              spellCheck={false}
-              className="mt-3 min-h-48 w-full resize-none rounded-md border border-[#d6cec0] bg-[#fffdf8] p-4 font-mono text-sm leading-7 outline-none transition focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
-            />
+            <div className="mt-3 grid grid-cols-2 rounded-md border border-[#d6cec0] bg-[#f8f5ee] p-1 text-sm font-black">
+              <button type="button" onClick={() => setInputMode("manual")} className={`rounded px-3 py-2 ${inputMode === "manual" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>
+                {t.manual}
+              </button>
+              <button type="button" onClick={() => setInputMode("capture")} className={`rounded px-3 py-2 ${inputMode === "capture" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>
+                {t.capture}
+              </button>
+            </div>
+            {inputMode === "manual" && (
+              <textarea
+                id="portfolio-input"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder={t.placeholder}
+                spellCheck={false}
+                className="mt-3 min-h-48 w-full resize-none rounded-md border border-[#d6cec0] bg-[#fffdf8] p-4 font-mono text-sm leading-7 outline-none transition focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
+              />
+            )}
+            {inputMode === "capture" && (
             <div className="mt-4 rounded-md border border-[#d6cec0] bg-[#f8f5ee] p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-black">{t.capture}</p>
+                  <p className="mt-1 text-xs font-bold text-[#6d7b76]">{t.captureSupport}</p>
                   <p className="mt-1 text-xs font-bold text-[#6d7b76]">{t.capturePrivacy}</p>
                 </div>
                 <label htmlFor="capture-upload" className="cursor-pointer rounded-md bg-[#2f7d6d] px-3 py-2 text-sm font-black text-white transition hover:bg-[#286c5e]">
@@ -860,22 +1014,35 @@ export default function Home() {
                   id="capture-upload"
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   onChange={(event) => {
-                    void handleCaptureUpload(event.target.files?.[0]);
+                    void handleCaptureUpload(event.target.files ?? undefined);
                     event.currentTarget.value = "";
                   }}
                 />
               </div>
-              {captureStatus && <p className="mt-3 text-xs font-black text-[#42665c]">{captureStatus}</p>}
-              {capturePreview && (
-                <img
-                  src={capturePreview}
-                  alt=""
-                  className="mt-3 max-h-48 w-full rounded-md border border-[#d6cec0] object-contain"
-                />
+              {capturePreviews.length > 0 && (
+                <p className="mt-3 text-xs font-black text-[#42665c]">
+                  {t.captureCount}: {capturePreviews.length}
+                  {detectedBrokers.length > 0 ? ` · ${t.brokerAuto}: ${detectedBrokers.join(", ")}` : ""}
+                </p>
               )}
-              {(captureText || capturePreview) && (
+              {captureStatus && <p className="mt-3 text-xs font-black text-[#42665c]">{captureStatus}</p>}
+              {capturePreviews.length > 0 && (
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {capturePreviews.map((src) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={src}
+                      src={src}
+                      alt=""
+                      className="h-28 w-full rounded-md border border-[#d6cec0] object-cover"
+                    />
+                  ))}
+                </div>
+              )}
+              {(captureText || capturePreviews.length > 0) && (
                 <div className="mt-3 grid gap-3">
                   <textarea
                     value={captureText}
@@ -884,40 +1051,66 @@ export default function Home() {
                     className="min-h-24 w-full resize-none rounded-md border border-[#d6cec0] bg-white p-3 text-xs leading-5 outline-none focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
                   />
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => refreshCaptureRows(captureText)} className="rounded-md bg-[#10231f] px-3 py-2 text-xs font-black text-white">{t.findCandidates}</button>
-                    <button type="button" onClick={() => setCaptureRows((rows) => [...rows, { name: "", weight: 0, source: "percent", confidence: "low" }])} className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#10231f] ring-1 ring-[#d6cec0]">{t.addRow}</button>
+                    <button type="button" onClick={() => void refreshCaptureRows(captureText)} className="rounded-md bg-[#10231f] px-3 py-2 text-xs font-black text-white">{t.findCandidates}</button>
+                    <button type="button" onClick={() => setCaptureRowsAndTotal([...captureRows, { name: "", weight: 0, source: "percent", confidence: "low", warnings: ["NEEDS_USER_REVIEW"] }])} className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#10231f] ring-1 ring-[#d6cec0]">{t.addRow}</button>
                     <button type="button" onClick={applyCaptureRows} disabled={captureRows.length === 0 || isReadingCapture} className="rounded-md bg-[#f2b84b] px-3 py-2 text-xs font-black text-[#10231f] disabled:cursor-not-allowed disabled:opacity-50">{t.applyCapture}</button>
                   </div>
                 </div>
               )}
-              {captureRows.length > 0 && (
-                <div className="mt-3 overflow-hidden rounded-md border border-[#d6cec0] bg-white">
-                  <div className="grid grid-cols-[1fr_92px_58px] bg-[#efe9dd] px-3 py-2 text-xs font-black text-[#52655f]">
-                    <span>{t.name}</span>
-                    <span>{t.weight}</span>
-                    <span />
-                  </div>
-                  {captureRows.map((row, index) => (
-                    <div key={`${row.name}-${index}`} className="grid grid-cols-[1fr_92px_58px] gap-2 border-t border-[#eee6da] px-3 py-2">
-                      <input
-                        value={row.name}
-                        onChange={(event) => updateCaptureRow(index, { name: event.target.value })}
-                        className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
-                      />
-                      <input
-                        value={Number.isFinite(row.weight) ? row.weight.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") : ""}
-                        inputMode="decimal"
-                        onChange={(event) => updateCaptureRow(index, { weight: Number.parseFloat(event.target.value) || 0 })}
-                        className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
-                      />
-                      <button type="button" onClick={() => setCaptureRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} className="rounded bg-[#f6eee4] text-xs font-black text-[#8a4630]">
-                        {t.remove}
-                      </button>
-                    </div>
+              {captureTotal !== null && (
+                <div className={`mt-3 rounded-md px-3 py-2 text-xs font-black ${captureTotal >= 98 && captureTotal <= 102 ? "bg-[#eaf5ed] text-[#24664a]" : "bg-[#fff0e8] text-[#9d432b]"}`}>
+                  {t.totalAllocation}: {fmt(captureTotal)}
+                </div>
+              )}
+              {captureWarnings.length > 0 && (
+                <div className="mt-3 rounded-md border border-[#ead8b2] bg-[#fff9ea] px-3 py-2">
+                  <p className="text-xs font-black text-[#8a5d16]">{t.warnings}</p>
+                  {captureWarningsForUi(captureWarnings, lang).map((message, index) => (
+                    <p key={`${message}-${index}`} className="mt-1 text-xs font-bold leading-5 text-[#7b6743]">{message}</p>
                   ))}
                 </div>
               )}
+              {captureRows.length > 0 && (
+                <div className="mt-3 overflow-x-auto rounded-md border border-[#d6cec0] bg-white">
+                  <div className="min-w-[650px]">
+                    <div className="grid grid-cols-[1.1fr_90px_130px_110px_60px] bg-[#efe9dd] px-3 py-2 text-xs font-black text-[#52655f]">
+                      <span>{t.name}</span>
+                      <span>{t.weight}</span>
+                      <span>{t.marketValue}</span>
+                      <span>{t.confidence}</span>
+                      <span />
+                    </div>
+                    {captureRows.map((row, index) => (
+                      <div key={`${row.name}-${index}`} className={`grid grid-cols-[1.1fr_90px_130px_110px_60px] gap-2 border-t px-3 py-2 ${captureRowClass(row.confidence)}`}>
+                        <input
+                          value={row.name}
+                          onChange={(event) => updateCaptureRow(index, { name: event.target.value })}
+                          className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
+                        />
+                        <input
+                          value={Number.isFinite(row.weight) ? row.weight.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") : ""}
+                          inputMode="decimal"
+                          onChange={(event) => updateCaptureRow(index, { weight: Number.parseFloat(event.target.value) || 0 })}
+                          className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
+                        />
+                        <input
+                          value={formatCaptureAmount(row)}
+                          onChange={(event) => updateCaptureRow(index, { marketValue: Number.parseFloat(event.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                          className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
+                        />
+                        <span className="flex items-center rounded bg-white/80 px-2 text-xs font-black text-[#52655f]">
+                          {captureConfidenceLabel(row.confidence, lang)}
+                        </span>
+                        <button type="button" onClick={() => setCaptureRowsAndTotal(captureRows.filter((_, rowIndex) => rowIndex !== index))} className="rounded bg-[#f6eee4] text-xs font-black text-[#8a4630]">
+                          {t.remove}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+            )}
             <div className="mt-4 grid grid-cols-3 gap-3">
               <button onClick={() => setInput(sampleInput)} className="rounded-md bg-[#10231f] px-3 py-3 text-sm font-black text-white transition hover:bg-[#1c3c35]">{t.sample}</button>
               <button onClick={saveImage} className="rounded-md bg-[#f2b84b] px-3 py-3 text-sm font-black text-[#10231f] transition hover:bg-[#e6a92e]">{t.save}</button>
@@ -1064,6 +1257,8 @@ function getMainRisk({
   }
   return lang === "ko" ? "하락장 민감도" : "Market drawdown sensitivity";
 }
+
+Object.freeze({ parsePortfolio, groupBy, weighted, getStyle, getMainRisk });
 
 function getFeedback({
   lang,

@@ -1,8 +1,14 @@
+import type { ScreenshotImportWarningCode } from "../../types/screenshotImport.ts";
+
 export type CaptureCandidate = {
   name: string;
   weight: number;
+  marketValue?: number;
+  currency?: string;
   source: "percent" | "amount";
   confidence: "high" | "medium" | "low";
+  warnings?: ScreenshotImportWarningCode[];
+  sourceScreenshotIds?: string[];
 };
 
 const ignorePatterns = [
@@ -17,16 +23,19 @@ export function parseCaptureText(text: string): CaptureCandidate[] {
     .filter((line) => line.length >= 3 && !ignorePatterns.some((pattern) => pattern.test(line)));
 
   const percentRows = lines.flatMap((line, index) => parsePercentLine(line, lines, index));
-  if (percentRows.length > 0) return combineRows(percentRows);
-
   const amountRows = lines.flatMap((line, index) => parseAmountLine(line, lines, index));
+
+  if (percentRows.length > 0 && amountRows.length <= percentRows.length) return combineRows(percentRows);
+
   const totalAmount = amountRows.reduce((sum, row) => sum + row.amount, 0);
-  if (totalAmount <= 0) return [];
+  if (totalAmount <= 0) return combineRows(percentRows);
 
   return combineRows(
     amountRows.map((row) => ({
       name: row.name,
       weight: (row.amount / totalAmount) * 100,
+      marketValue: row.amount,
+      currency: row.currency,
       source: "amount",
       confidence: "medium",
     })),
@@ -54,20 +63,25 @@ function parsePercentLine(line: string, lines: string[], index: number): Capture
   return [{ name, weight, source: "percent", confidence: "high" }];
 }
 
-function parseAmountLine(line: string, lines: string[], index: number): { name: string; amount: number }[] {
-  const matches = [...line.matchAll(/(?:₩|\$)?\s*(\d[\d,]{3,})(?:\.\d+)?\s*(?:원|KRW|USD|달러)?/gi)];
+function parseAmountLine(line: string, lines: string[], index: number): { name: string; amount: number; currency?: string }[] {
+  const matches = [...line.matchAll(/(₩|\$)?\s*(\d[\d,]{3,})(?:\.\d+)?\s*(원|KRW|USD|달러)?/gi)];
   if (matches.length === 0) return [];
 
-  const amounts = matches
-    .map((match) => Number.parseFloat(match[1].replace(/,/g, "")))
-    .filter((value) => Number.isFinite(value) && value > 0);
+  const parsed = matches
+    .map((match) => ({
+      amount: Number.parseFloat(match[2].replace(/,/g, "")),
+      currency: detectCurrency(match[1], match[3]),
+    }))
+    .filter((value) => Number.isFinite(value.amount) && value.amount > 0);
+  const amounts = parsed.map((item) => item.amount);
   if (amounts.length === 0) return [];
 
   const firstNumberIndex = matches[0].index ?? line.length;
   const name = bestName(line.slice(0, firstNumberIndex), lines, index);
   if (!name) return [];
 
-  return [{ name, amount: Math.max(...amounts) }];
+  const largest = parsed.sort((a, b) => b.amount - a.amount)[0];
+  return [{ name, amount: largest.amount, currency: largest.currency }];
 }
 
 function cleanLine(line: string) {
@@ -126,10 +140,33 @@ function combineRows(rows: CaptureCandidate[]) {
       byName.set(key, row);
       return;
     }
-    existing.weight += row.weight;
-    existing.confidence = existing.confidence === "high" && row.confidence === "high" ? "high" : "medium";
+    const sameWeight = Math.abs(existing.weight - row.weight) <= 0.15;
+    const sameValue =
+      existing.marketValue !== undefined &&
+      row.marketValue !== undefined &&
+      Math.abs(existing.marketValue - row.marketValue) <= Math.max(1, existing.marketValue * 0.001);
+    const preferred = confidenceRank(row.confidence) > confidenceRank(existing.confidence) ? row : existing;
+    byName.set(key, {
+      ...preferred,
+      warnings: [...new Set([...(existing.warnings ?? []), ...(row.warnings ?? []), "DUPLICATE_POSITION", ...(sameWeight || sameValue ? [] : ["NEEDS_USER_REVIEW"])])],
+      sourceScreenshotIds: [...new Set([...(existing.sourceScreenshotIds ?? []), ...(row.sourceScreenshotIds ?? [])])],
+      confidence: sameWeight || sameValue ? "medium" : "low",
+    });
   });
   return [...byName.values()].sort((a, b) => b.weight - a.weight);
+}
+
+function detectCurrency(prefix?: string, suffix?: string) {
+  const value = `${prefix ?? ""}${suffix ?? ""}`.toUpperCase();
+  if (value.includes("$") || value.includes("USD") || value.includes("달러")) return "USD";
+  if (value.includes("₩") || value.includes("KRW") || value.includes("원")) return "KRW";
+  return undefined;
+}
+
+function confidenceRank(value: CaptureCandidate["confidence"]) {
+  if (value === "high") return 3;
+  if (value === "medium") return 2;
+  return 1;
 }
 
 function roundWeight(value: number) {

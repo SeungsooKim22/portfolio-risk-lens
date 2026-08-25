@@ -3,7 +3,11 @@ import test from "node:test";
 import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio.ts";
 import { generateBadges } from "../lib/personality/generateBadges.ts";
 import { generateCharacter } from "../lib/personality/generateCharacter.ts";
+import { ScreenshotPortfolioImporter } from "../lib/importers/ScreenshotPortfolioImporter.ts";
+import { calculatePositionWeights } from "../lib/screenshot/calculateWeights.ts";
+import { validateRawExtraction } from "../lib/screenshot/validateExtraction.ts";
 import { candidatesToManualInput, parseCaptureText } from "../lib/portfolio/captureImport.ts";
+import { MockScreenshotExtractionProvider } from "../providers/screenshot/MockScreenshotExtractionProvider.ts";
 
 function summarize(input: string) {
   const analysis = analyzePortfolioText(input);
@@ -117,4 +121,118 @@ test("uploaded screenshot names resolve to securities", () => {
   const input = candidatesToManualInput(parseCaptureText("앱셀레라 바이오로직스 78.8%\n엑스에너지 11.0%\n로켓 랩 8.4%\n라이트패스 테크놀로지 1.6%"));
   const { analysis } = summarize(input);
   assert.deepEqual(analysis.portfolio.positions.map((item) => item.ticker), ["ABCL", "XE", "RKLB", "LPTH"]);
+});
+
+test("screenshot extraction schema validation accepts valid positions", () => {
+  const validated = validateRawExtraction({
+    positions: [{ rawName: "AAPL", weight: 25, confidence: { overall: 0.95 }, sourceScreenshotIds: ["s1"] }],
+    confidence: 0.92,
+  });
+  assert.equal(validated.positions.length, 1);
+  assert.equal(validated.warnings?.length, 0);
+});
+
+test("screenshot weights can be derived from market values", () => {
+  const result = calculatePositionWeights([
+    { rawName: "AAPL", marketValue: 5000, confidence: { overall: 0.9, marketValue: 0.9 }, sourceScreenshotIds: ["s1"] },
+    { rawName: "NVDA", marketValue: 3000, confidence: { overall: 0.9, marketValue: 0.9 }, sourceScreenshotIds: ["s1"] },
+    { rawName: "ABCL", marketValue: 2000, confidence: { overall: 0.9, marketValue: 0.9 }, sourceScreenshotIds: ["s1"] },
+  ]);
+  assert.deepEqual(result.positions.map((item) => Number(item.weight?.toFixed(1))), [50, 30, 20]);
+});
+
+test("screenshot importer normalizes rounded weights", async () => {
+  const importer = new ScreenshotPortfolioImporter(
+    new MockScreenshotExtractionProvider({
+      s1: {
+        positions: ["AAPL", "NVDA", "ABCL"].map((name) => ({ rawName: name, weight: 33.3, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s1"] })),
+        confidence: 0.95,
+      },
+    }),
+  );
+  const result = await importer.import({ screenshots: [{ id: "s1", text: "AAPL 33.3 NVDA 33.3 ABCL 33.3" }] });
+  const total = result.portfolioCandidate.positions.reduce((sum, item) => sum + item.weight, 0);
+  assert.ok(Math.abs(total - 100) < 1e-9);
+});
+
+test("capture parser does not treat return percent as allocation", () => {
+  const rows = parseCaptureText("AAPL\n수익률 +18.4%\nNVDA 3,000,000원\nABCL 2,000,000원");
+  assert.equal(rows.some((row) => row.name === "AAPL" && row.weight === 18.4), false);
+  assert.deepEqual(rows.map((row) => row.name), ["NVDA", "ABCL"]);
+});
+
+test("duplicate screenshots are not blindly doubled", async () => {
+  const importer = new ScreenshotPortfolioImporter(
+    new MockScreenshotExtractionProvider({
+      s1: { positions: [{ rawName: "AAPL", weight: 50, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s1"] }], confidence: 0.95 },
+      s2: {
+        positions: [
+          { rawName: "AAPL", weight: 50, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s2"] },
+          { rawName: "NVDA", weight: 50, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s2"] },
+        ],
+        confidence: 0.95,
+      },
+    }),
+  );
+  const result = await importer.import({ screenshots: [{ id: "s1" }, { id: "s2" }] });
+  assert.deepEqual(result.portfolioCandidate.positions.map((item) => item.ticker), ["AAPL", "NVDA"]);
+  assert.equal(result.warnings.some((item) => item.code === "DUPLICATE_POSITION"), true);
+});
+
+test("unknown security does not crash screenshot import", async () => {
+  const importer = new ScreenshotPortfolioImporter(
+    new MockScreenshotExtractionProvider({
+      s1: { positions: [{ rawName: "UNKNOWNXYZ", weight: 100, confidence: { overall: 0.7, weight: 0.8 }, sourceScreenshotIds: ["s1"] }], confidence: 0.7 },
+    }),
+  );
+  const result = await importer.import({ screenshots: [{ id: "s1" }] });
+  assert.equal(result.portfolioCandidate.positions[0].ticker, "UNKNOWNXYZ");
+  assert.equal(result.warnings.some((item) => item.code === "UNKNOWN_SECURITY"), true);
+});
+
+test("user correction replaces OCR candidate before analysis", async () => {
+  const importer = new ScreenshotPortfolioImporter();
+  const result = await importer.import({
+    screenshots: [{ id: "review" }],
+    correctedPositions: [{ rawName: "AVGO", weight: 100, confidence: { overall: 1, weight: 1 }, sourceScreenshotIds: ["review"] }],
+  });
+  assert.equal(result.portfolioCandidate.positions[0].ticker, "AVGO");
+});
+
+test("multi-image screenshot import combines positions into one portfolio", async () => {
+  const importer = new ScreenshotPortfolioImporter(
+    new MockScreenshotExtractionProvider({
+      s1: { positions: [{ rawName: "AAPL", weight: 60, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s1"] }], confidence: 0.95 },
+      s2: { positions: [{ rawName: "TLT", weight: 40, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s2"] }], confidence: 0.95 },
+    }),
+  );
+  const result = await importer.import({ screenshots: [{ id: "s1" }, { id: "s2" }] });
+  assert.deepEqual(result.portfolioCandidate.positions.map((item) => item.ticker), ["AAPL", "TLT"]);
+});
+
+test("portfolio total warning appears for incomplete detected allocation", async () => {
+  const importer = new ScreenshotPortfolioImporter(
+    new MockScreenshotExtractionProvider({
+      s1: { positions: [{ rawName: "AAPL", weight: 78, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s1"] }], confidence: 0.95 },
+    }),
+  );
+  const result = await importer.import({ screenshots: [{ id: "s1" }] });
+  assert.equal(result.warnings.some((item) => item.code === "PORTFOLIO_TOTAL_TOO_LOW"), true);
+});
+
+test("screenshot importer is deterministic for the same extraction payload", async () => {
+  const provider = new MockScreenshotExtractionProvider({
+    s1: {
+      positions: [
+        { rawName: "QQQ", weight: 70, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s1"] },
+        { rawName: "SCHD", weight: 30, confidence: { overall: 0.95, weight: 0.95 }, sourceScreenshotIds: ["s1"] },
+      ],
+      confidence: 0.95,
+    },
+  });
+  const importer = new ScreenshotPortfolioImporter(provider);
+  const a = await importer.import({ screenshots: [{ id: "s1" }] });
+  const b = await importer.import({ screenshots: [{ id: "s1" }] });
+  const serialize = (result: typeof a) => result.portfolioCandidate.positions.map((item) => `${item.ticker}:${item.weight.toFixed(4)}`);
+  assert.deepEqual(serialize(a), serialize(b));
 });
