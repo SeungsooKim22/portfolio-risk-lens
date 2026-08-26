@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Portfolio Risk Lens",
   description:
-    "Create a shareable visual risk snapshot from a simple portfolio allocation.",
+    "Enter your portfolio, get a serious risk score, and discover your investing personality.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

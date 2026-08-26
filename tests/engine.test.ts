@@ -236,3 +236,32 @@ test("screenshot importer is deterministic for the same extraction payload", asy
   const serialize = (result: typeof a) => result.portfolioCandidate.positions.map((item) => `${item.ticker}:${item.weight.toFixed(4)}`);
   assert.deepEqual(serialize(a), serialize(b));
 });
+
+test("v1 personality fixtures produce diverse and relevant results", () => {
+  const fixtures = [
+    "AAPL 100",
+    "VOO 45\nSCHD 25\nBND 20\nGLD 10",
+    "NVDA 35\nAMD 20\nTSM 15\nQQQ 30",
+    "ABCL 70\nMRNA 20\nCASH 10",
+    "TQQQ 60\nQQQ 25\nCASH 15",
+    "CASH 40\nTLT 35\nBND 25",
+    "AAPL 5\nMSFT 5\nNVDA 5\nAMZN 5\nGOOGL 5\nMETA 5\nTSLA 5\nMRNA 5\nABCL 5\nPLTR 5\nMU 5\nAMD 5\nAVGO 5\nTSM 5\nSNDK 5\nWMT 5\nSPY 5\nQQQ 5\nTLT 5\nGLD 5",
+    "AAPL 25\nMSFT 25\nNVDA 25\nGOOGL 25",
+    "RKLB 40\nSPACEX 30\nSATL 20\nCASH 10",
+    "QQQ 35\nSCHD 25\n삼성전자 20\n하이닉스 10\nGLD 10",
+    "ABCL 85\nCASH 15",
+    "NVDA 85\nCASH 15",
+  ];
+
+  const summaries = fixtures.map((input) => summarize(input));
+  const names = new Set(summaries.map((item) => item.character.name));
+  const quotes = new Set(summaries.map((item) => item.character.quote));
+  const badgeTitles = new Set(summaries.flatMap((item) => item.badges.map((badge) => badge.title)));
+
+  assert.ok(names.size >= 8);
+  assert.ok(quotes.size >= 8);
+  assert.ok(badgeTitles.size >= 14);
+  assert.ok(summaries[1].badges.length <= 2);
+  assert.ok(summaries[4].badges.length === 3);
+  assert.notEqual(summaries[10].character.quote, summaries[11].character.quote);
+});

@@ -1,306 +1,164 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { analyzePortfolioText } from "../lib/analytics/analyzePortfolio";
 import { groupWeights } from "../lib/analytics/calculateFeatures";
 import { generateBadges } from "../lib/personality/generateBadges";
 import { generateCharacter } from "../lib/personality/generateCharacter";
-import { ScreenshotPortfolioImporter } from "../lib/importers/ScreenshotPortfolioImporter.ts";
-import { candidatesToManualInput, parseCaptureText, type CaptureCandidate } from "../lib/portfolio/captureImport.ts";
-import type { PortfolioFeatures } from "../types/analytics.ts";
-import type { ImportWarning, ResolvedExtractedPosition, UploadedScreenshot } from "../types/screenshotImport.ts";
+import { normalizeSecurityName, resolveSecurity } from "../lib/portfolio/resolveSecurity.ts";
+import { aliases } from "../data/aliases.ts";
+import { securityMaster } from "../data/securityMaster.ts";
+import type { PortfolioFeatures, RiskBreakdownItem, ScenarioResult } from "../types/analytics.ts";
+import type { NormalizedPosition } from "../types/portfolio.ts";
+import type { Security } from "../types/security.ts";
+import type { Badge, Lang, RiskCharacter } from "../types/personality.ts";
 
-type Lang = "ko" | "en";
-
-type Holding = {
-  ticker: string;
-  displayName: string;
+type DraftPosition = {
+  id: string;
+  rawName: string;
   weight: number;
-  name: string;
-  asset: string;
-  sector: string;
-  region: string;
-  volatility: number;
-  stress: {
-    techSelloff: number;
-    rateShock: number;
-    recession: number;
-    dollarDrop: number;
-  };
 };
+
+type SecurityOption = {
+  ticker: string;
+  companyName: string;
+  exchange?: string;
+  aliases: string[];
+  security: Security;
+};
+
+type Tone = ReturnType<typeof toneForScore>;
 
 const labels = {
   ko: {
-    brand: "포트폴리오 리스크 렌즈",
-    headline: "내 포트폴리오 성향을 한 장으로 보여주세요.",
-    subhead: "종목과 비중을 넣으면 집중도, 섹터 쏠림, 위기 시나리오를 보기 쉬운 공유 카드와 상세 분석으로 정리합니다.",
-    input: "포트폴리오 입력",
-    inputMethod: "추가 방식",
-    manual: "직접 입력",
-    capture: "캡처 업로드",
-    captureCta: "이미지 선택",
-    captureSupport: "JPG, PNG, WEBP를 여러 장 올릴 수 있어요. 종목이 한 화면에 다 안 보이면 스크롤 캡처를 나눠 올려도 됩니다.",
-    captureCount: "업로드한 이미지",
-    captureReading: "이미지를 읽는 중",
-    captureReady: "분석 전에 후보를 확인해 주세요",
-    captureFallback: "자동 읽기에 실패했어요. 캡처에서 복사한 텍스트를 붙여넣어도 됩니다.",
-    captureEmpty: "종목과 비중을 찾지 못했어요. 아래에 텍스트를 붙여넣거나 직접 추가해 주세요.",
-    capturePrivacy: "이미지는 브라우저에서만 처리하고 저장하지 않아요.",
-    brokerAuto: "증권사 자동 인식",
-    ocrText: "읽힌 텍스트",
-    findCandidates: "후보 찾기",
-    addRow: "행 추가",
-    applyCapture: "이 포트폴리오 분석하기",
-    remove: "삭제",
-    name: "종목",
-    weight: "비중",
-    marketValue: "평가금액",
-    confidence: "확인 상태",
-    recognized: "인식됨",
-    checkNeeded: "확인 필요",
-    lowConfidence: "낮은 확신",
-    totalAllocation: "감지된 비중 합계",
-    warnings: "확인할 점",
-    sample: "샘플 불러오기",
+    brand: "Portfolio Risk Lens",
+    eyebrow: "재미있는 리스크 성향 테스트",
+    headline: "내 포트폴리오, 얼마나 위험할까?",
+    subhead: "종목과 비중을 넣으면 리스크 점수부터 투자자 캐릭터까지 분석해드려요. 그리고 조금 놀려드립니다.",
+    inputTitle: "포트폴리오 넣기",
+    riskMeaningTitle: "리스크 점수는 낮을수록 안정적이에요.",
+    riskMeaning: "0 = 매우 안정적 · 100 = 상당히 공격적. 높은 점수는 높은 수익 보장이 아니라 높은 변동성, 집중도, 하방 위험 가능성을 뜻해요.",
+    searchLabel: "종목 검색",
+    searchPlaceholder: "AAPL, Apple, 애플, 삼성전자...",
+    weightLabel: "비중",
+    weightPlaceholder: "25",
+    add: "추가",
+    popular: "인기 종목",
+    recent: "최근 입력",
+    holdings: "입력한 종목",
+    currentAllocation: "현재 비중",
+    left: "남았습니다.",
+    complete: "포트폴리오 완성",
+    over: "초과됐어요.",
+    equalWeight: "전부 같은 비중",
+    pasteTitle: "여러 줄 붙여넣기",
+    pastePlaceholder: "AAPL 25%\nNVDA 20%\n삼성전자 15%",
+    pasteApply: "붙여넣기 반영",
+    analyze: "내 포트폴리오 분석하기",
+    sample: "샘플",
+    clear: "비우기",
     save: "이미지 저장",
-    share: "바로 공유",
-    story: "내 포트폴리오 성향",
-    investorType: "당신의 투자자 유형은",
-    earnedBadges: "획득한 칭호",
+    share: "공유",
     score: "리스크 점수",
-    style: "투자 성향",
-    mainRisk: "가장 눈에 띄는 위험",
-    top3: "상위 3종목 비중",
+    lowerSafer: "낮을수록 안정적",
+    safer: "안정적",
+    riskier: "공격적",
+    personality: "투자자 캐릭터",
+    badges: "획득한 칭호",
+    keyInsight: "한 줄 요약",
     largest: "가장 큰 비중",
-    vol: "변동성",
-    assets: "자산 구성",
-    sectors: "섹터 노출",
-    regions: "국내/해외 분산",
-    scenarios: "하락장 시뮬레이션",
-    readout: "간단한 분석",
-    feedback: "리스크 줄이는 힌트",
-    whyScore: "왜 이 점수인가요?",
-    total: "총점",
-    details: "상세 분석",
-    notice: "",
-    placeholder: "예: AAPL 25%",
-    unmatched: "아직 모르는 종목은 임시값으로 계산해요. 종목 데이터가 늘어날수록 더 정확해집니다.",
+    concentration: "집중도",
+    volatility: "변동성",
+    effectiveN: "실질 분산 종목 수",
+    allocation: "자산 구성",
+    sectors: "섹터",
+    regions: "국내/해외",
+    stress: "시나리오",
+    scoreWhy: "이 점수를 만든 이유",
+    biggestReason: "가장 큰 이유",
+    detail: "상세 분석",
+    methodology: "리스크 점수는 어떻게 계산되나요?",
+    methodologyText: "변동성, 하방 위험, 종목 집중도, 시장 민감도, 레버리지, 개별기업 위험을 종합해 계산합니다. 미래 수익률을 예측하는 점수는 아닙니다.",
+    disclaimer: "재미와 참고를 위한 분석이며 투자 권유나 미래 수익률 예측이 아닙니다.",
+    unknown: "이 종목은 아직 잘 모르겠어요. 티커를 한번 확인해주세요.",
+    missingWeight: "비중 하나가 비어 있어요. 저도 계산은 숫자가 있어야 합니다.",
+    allocationLow: "아직 포트폴리오가 덜 찼어요.",
+    allocationHigh: "포트폴리오가 100%를 넘었어요. 레버리지는 아직 입력 기능에 없습니다.",
+    normalized: "소수점 차이는 100% 기준으로 맞춰 분석했어요.",
     noShare: "이 브라우저에서는 이미지 저장으로 공유해주세요.",
+    experimentalImport: "캡처 업로드는 v1에서 실험 기능으로 숨겨두었습니다.",
   },
   en: {
     brand: "Portfolio Risk Lens",
-    headline: "Turn your allocation into a shareable risk snapshot.",
-    subhead: "Enter tickers and weights to see concentration, exposures, stress scenarios, and a clean visual card.",
-    input: "Portfolio input",
-    inputMethod: "Input method",
-    manual: "Enter manually",
-    capture: "Upload screenshot",
-    captureCta: "Choose image",
-    captureSupport: "Upload JPG, PNG, or WEBP. Multiple screenshots are supported when your holdings span several screens.",
-    captureCount: "Uploaded images",
-    captureReading: "Reading image",
-    captureReady: "Review before analysis",
-    captureFallback: "Automatic reading failed. You can paste copied screenshot text below.",
-    captureEmpty: "No holdings were detected. Paste text below or add rows manually.",
-    capturePrivacy: "The image is processed in your browser and is not stored.",
-    brokerAuto: "Brokerage auto detect",
-    ocrText: "Detected text",
-    findCandidates: "Find rows",
-    addRow: "Add row",
-    applyCapture: "Analyze this portfolio",
-    remove: "Remove",
-    name: "Name",
-    weight: "Weight",
-    marketValue: "Market value",
-    confidence: "Confidence",
-    recognized: "Recognized",
-    checkNeeded: "Please check",
-    lowConfidence: "Low confidence",
-    totalAllocation: "Detected total",
-    warnings: "Warnings",
-    sample: "Load sample",
+    eyebrow: "A playful portfolio risk test",
+    headline: "How risky is your portfolio, really?",
+    subhead: "Enter tickers and weights to get a serious risk score, a personality result, and a small roast.",
+    inputTitle: "Add your portfolio",
+    riskMeaningTitle: "Lower risk score means lower portfolio risk.",
+    riskMeaning: "0 = very stable · 100 = very aggressive. A high score means volatility, concentration, or downside risk, not guaranteed return.",
+    searchLabel: "Security search",
+    searchPlaceholder: "AAPL, Apple, Samsung...",
+    weightLabel: "Weight",
+    weightPlaceholder: "25",
+    add: "Add",
+    popular: "Popular",
+    recent: "Recently used",
+    holdings: "Holdings",
+    currentAllocation: "Current allocation",
+    left: "left.",
+    complete: "Portfolio complete",
+    over: "over.",
+    equalWeight: "Equal weight all",
+    pasteTitle: "Paste multiple lines",
+    pastePlaceholder: "AAPL 25%\nNVDA 20%\nSamsung 15%",
+    pasteApply: "Apply paste",
+    analyze: "Analyze my portfolio",
+    sample: "Sample",
+    clear: "Clear",
     save: "Save image",
     share: "Share",
-    story: "Portfolio persona",
-    investorType: "Your investor type",
-    earnedBadges: "Badges earned",
     score: "Risk score",
-    style: "Investor style",
-    mainRisk: "Main risk",
-    top3: "Top 3 concentration",
+    lowerSafer: "Lower is safer",
+    safer: "Safer",
+    riskier: "Riskier",
+    personality: "Investor persona",
+    badges: "Badges earned",
+    keyInsight: "Quick read",
     largest: "Largest holding",
-    vol: "Estimated volatility",
-    assets: "Asset mix",
-    sectors: "Sector exposure",
-    regions: "Regional exposure",
-    scenarios: "Downside simulator",
-    readout: "Quick read",
-    feedback: "Risk-reduction ideas",
-    whyScore: "Why this score?",
-    total: "Total",
-    details: "Detailed view",
-    notice: "Educational estimate only. Not financial advice.",
-    placeholder: "Example: AAPL 25%",
-    unmatched: "Unclassified tickers use conservative default estimates.",
+    concentration: "Concentration",
+    volatility: "Volatility",
+    effectiveN: "Effective holdings",
+    allocation: "Asset mix",
+    sectors: "Sectors",
+    regions: "Regions",
+    stress: "Scenarios",
+    scoreWhy: "What made this score",
+    biggestReason: "Biggest reason",
+    detail: "Details",
+    methodology: "How is the risk score calculated?",
+    methodologyText: "It combines volatility, downside risk, concentration, market sensitivity, leverage, and company-specific risk. It does not predict future returns.",
+    disclaimer: "For fun and educational reference only. Not investment advice or a return forecast.",
+    unknown: "I do not know this security yet. Please check the ticker.",
+    missingWeight: "One weight is missing. The math still needs numbers.",
+    allocationLow: "The portfolio is not filled yet.",
+    allocationHigh: "The portfolio is above 100%. Leverage is not an input feature here.",
+    normalized: "Tiny rounding differences were normalized to 100%.",
     noShare: "This browser cannot share files directly. Please save the image.",
+    experimentalImport: "Screenshot upload is hidden as an experimental v1 feature.",
   },
 };
 
-const library: Record<string, Omit<Holding, "ticker" | "weight">> = {
-  AAPL: { name: "Apple", asset: "US Equity", sector: "Technology", region: "United States", volatility: 24, stress: { techSelloff: -24, rateShock: -9, recession: -18, dollarDrop: -3 } },
-  MSFT: { name: "Microsoft", asset: "US Equity", sector: "Technology", region: "United States", volatility: 22, stress: { techSelloff: -22, rateShock: -8, recession: -16, dollarDrop: -3 } },
-  NVDA: { name: "NVIDIA", asset: "US Equity", sector: "Technology", region: "United States", volatility: 45, stress: { techSelloff: -35, rateShock: -14, recession: -25, dollarDrop: -4 } },
-  AMZN: { name: "Amazon", asset: "US Equity", sector: "Consumer Discretionary", region: "United States", volatility: 32, stress: { techSelloff: -24, rateShock: -11, recession: -20, dollarDrop: -2 } },
-  GOOGL: { name: "Alphabet", asset: "US Equity", sector: "Communication Services", region: "United States", volatility: 29, stress: { techSelloff: -24, rateShock: -9, recession: -18, dollarDrop: -3 } },
-  META: { name: "Meta", asset: "US Equity", sector: "Communication Services", region: "United States", volatility: 36, stress: { techSelloff: -28, rateShock: -11, recession: -20, dollarDrop: -3 } },
-  TSLA: { name: "Tesla", asset: "US Equity", sector: "Consumer Discretionary", region: "United States", volatility: 55, stress: { techSelloff: -34, rateShock: -18, recession: -28, dollarDrop: -2 } },
-  MRNA: { name: "Moderna", asset: "US Equity", sector: "Health Care", region: "United States", volatility: 58, stress: { techSelloff: -18, rateShock: -12, recession: -30, dollarDrop: -2 } },
-  SPY: { name: "S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
-  QQQ: { name: "Nasdaq 100 ETF", asset: "US Equity ETF", sector: "Technology Tilt", region: "United States", volatility: 24, stress: { techSelloff: -26, rateShock: -10, recession: -24, dollarDrop: -2 } },
-  VTI: { name: "Total US Market ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
-  VXUS: { name: "International Equity ETF", asset: "Global Equity ETF", sector: "Broad Market", region: "International", volatility: 19, stress: { techSelloff: -13, rateShock: -5, recession: -20, dollarDrop: 5 } },
-  TLT: { name: "20+ Year Treasury ETF", asset: "Long Bonds", sector: "Rates", region: "United States", volatility: 16, stress: { techSelloff: 5, rateShock: -16, recession: 8, dollarDrop: -1 } },
-  IEF: { name: "7-10 Year Treasury ETF", asset: "Bonds", sector: "Rates", region: "United States", volatility: 9, stress: { techSelloff: 3, rateShock: -8, recession: 5, dollarDrop: -1 } },
-  BND: { name: "Total Bond ETF", asset: "Bonds", sector: "Rates", region: "United States", volatility: 7, stress: { techSelloff: 2, rateShock: -5, recession: 3, dollarDrop: -1 } },
-  GLD: { name: "Gold ETF", asset: "Commodity", sector: "Gold", region: "Global", volatility: 17, stress: { techSelloff: 4, rateShock: -3, recession: 7, dollarDrop: 8 } },
-  BTC: { name: "Bitcoin", asset: "Crypto", sector: "Digital Assets", region: "Global", volatility: 70, stress: { techSelloff: -25, rateShock: -18, recession: -35, dollarDrop: 4 } },
-  CASH: { name: "Cash", asset: "Cash", sector: "Cash", region: "Local", volatility: 1, stress: { techSelloff: 0, rateShock: 1, recession: 0, dollarDrop: -2 } },
-  "005930": { name: "Samsung Electronics", asset: "Korea Equity", sector: "Technology", region: "South Korea", volatility: 28, stress: { techSelloff: -22, rateShock: -8, recession: -20, dollarDrop: 3 } },
-  "000660": { name: "SK hynix", asset: "Korea Equity", sector: "Technology", region: "South Korea", volatility: 40, stress: { techSelloff: -32, rateShock: -12, recession: -26, dollarDrop: 4 } },
-  "035420": { name: "NAVER", asset: "Korea Equity", sector: "Communication Services", region: "South Korea", volatility: 34, stress: { techSelloff: -24, rateShock: -10, recession: -20, dollarDrop: 2 } },
-  "035720": { name: "Kakao", asset: "Korea Equity", sector: "Communication Services", region: "South Korea", volatility: 42, stress: { techSelloff: -28, rateShock: -13, recession: -25, dollarDrop: 2 } },
-  "005380": { name: "Hyundai Motor", asset: "Korea Equity", sector: "Consumer Discretionary", region: "South Korea", volatility: 30, stress: { techSelloff: -14, rateShock: -8, recession: -24, dollarDrop: 3 } },
-  "000270": { name: "Kia", asset: "Korea Equity", sector: "Consumer Discretionary", region: "South Korea", volatility: 31, stress: { techSelloff: -14, rateShock: -8, recession: -24, dollarDrop: 3 } },
-  "373220": { name: "LG Energy Solution", asset: "Korea Equity", sector: "Industrials", region: "South Korea", volatility: 38, stress: { techSelloff: -22, rateShock: -12, recession: -25, dollarDrop: 3 } },
-  "207940": { name: "Samsung Biologics", asset: "Korea Equity", sector: "Health Care", region: "South Korea", volatility: 27, stress: { techSelloff: -10, rateShock: -6, recession: -12, dollarDrop: 1 } },
-  "051910": { name: "LG Chem", asset: "Korea Equity", sector: "Materials", region: "South Korea", volatility: 37, stress: { techSelloff: -18, rateShock: -10, recession: -28, dollarDrop: 3 } },
-  "006400": { name: "Samsung SDI", asset: "Korea Equity", sector: "Industrials", region: "South Korea", volatility: 39, stress: { techSelloff: -22, rateShock: -12, recession: -26, dollarDrop: 3 } },
-  MU: { name: "Micron", asset: "US Equity", sector: "Technology", region: "United States", volatility: 44, stress: { techSelloff: -34, rateShock: -13, recession: -28, dollarDrop: -3 } },
-  SQ: { name: "Block", asset: "US Equity", sector: "Financials", region: "United States", volatility: 54, stress: { techSelloff: -24, rateShock: -16, recession: -32, dollarDrop: -2 } },
-  LAES: { name: "SEALSQ", asset: "US Equity", sector: "Technology", region: "United States", volatility: 82, stress: { techSelloff: -42, rateShock: -24, recession: -45, dollarDrop: -3 } },
-  XE: { name: "X-energy", asset: "US Equity", sector: "Energy", region: "United States", volatility: 62, stress: { techSelloff: -18, rateShock: -14, recession: -30, dollarDrop: -2 } },
-  SATL: { name: "Satellogic", asset: "US Equity", sector: "Aerospace", region: "United States", volatility: 76, stress: { techSelloff: -32, rateShock: -22, recession: -42, dollarDrop: -2 } },
-  SPACEX: { name: "SpaceX", asset: "Private Equity", sector: "Aerospace", region: "United States", volatility: 65, stress: { techSelloff: -24, rateShock: -18, recession: -35, dollarDrop: -2 } },
-  AMD: { name: "AMD", asset: "US Equity", sector: "Technology", region: "United States", volatility: 48, stress: { techSelloff: -34, rateShock: -14, recession: -28, dollarDrop: -3 } },
-  AVGO: { name: "Broadcom", asset: "US Equity", sector: "Technology", region: "United States", volatility: 31, stress: { techSelloff: -27, rateShock: -10, recession: -21, dollarDrop: -3 } },
-  TSM: { name: "TSMC", asset: "Global Equity", sector: "Technology", region: "International", volatility: 33, stress: { techSelloff: -30, rateShock: -10, recession: -23, dollarDrop: 2 } },
-  SNDK: { name: "SanDisk", asset: "US Equity", sector: "Technology", region: "United States", volatility: 42, stress: { techSelloff: -30, rateShock: -12, recession: -28, dollarDrop: -3 } },
-  VOO: { name: "Vanguard S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
-  IVV: { name: "iShares Core S&P 500 ETF", asset: "US Equity ETF", sector: "Broad Market", region: "United States", volatility: 18, stress: { techSelloff: -17, rateShock: -7, recession: -22, dollarDrop: -2 } },
-  VT: { name: "Total World Stock ETF", asset: "Global Equity ETF", sector: "Broad Market", region: "Global", volatility: 18, stress: { techSelloff: -14, rateShock: -6, recession: -20, dollarDrop: 2 } },
-  TQQQ: { name: "ProShares UltraPro QQQ", asset: "Leveraged ETF", sector: "Technology", region: "United States", volatility: 72, stress: { techSelloff: -58, rateShock: -28, recession: -55, dollarDrop: -5 } },
-  SOXL: { name: "Direxion Daily Semiconductor Bull 3X", asset: "Leveraged ETF", sector: "Technology", region: "United States", volatility: 88, stress: { techSelloff: -65, rateShock: -32, recession: -60, dollarDrop: -5 } },
-  UPRO: { name: "ProShares UltraPro S&P500", asset: "Leveraged ETF", sector: "Broad Market", region: "United States", volatility: 58, stress: { techSelloff: -42, rateShock: -21, recession: -55, dollarDrop: -4 } },
-  BRK: { name: "Berkshire Hathaway", asset: "US Equity", sector: "Financials", region: "United States", volatility: 18, stress: { techSelloff: -8, rateShock: -4, recession: -16, dollarDrop: -2 } },
-  "BRK.B": { name: "Berkshire Hathaway", asset: "US Equity", sector: "Financials", region: "United States", volatility: 18, stress: { techSelloff: -8, rateShock: -4, recession: -16, dollarDrop: -2 } },
-  PLTR: { name: "Palantir", asset: "US Equity", sector: "Technology", region: "United States", volatility: 58, stress: { techSelloff: -36, rateShock: -18, recession: -35, dollarDrop: -3 } },
-  ABCL: { name: "AbCellera", asset: "US Equity", sector: "Health Care", region: "United States", volatility: 68, stress: { techSelloff: -22, rateShock: -16, recession: -40, dollarDrop: -2 } },
-};
+const sampleRows: DraftPosition[] = [
+  { id: "sample-aapl", rawName: "AAPL", weight: 25 },
+  { id: "sample-msft", rawName: "MSFT", weight: 20 },
+  { id: "sample-nvda", rawName: "NVDA", weight: 20 },
+  { id: "sample-spy", rawName: "SPY", weight: 20 },
+  { id: "sample-tlt", rawName: "TLT", weight: 10 },
+  { id: "sample-gld", rawName: "GLD", weight: 5 },
+];
 
-const aliases: Record<string, string> = {
-  apple: "AAPL",
-  애플: "AAPL",
-  아이폰: "AAPL",
-  microsoft: "MSFT",
-  ms: "MSFT",
-  마이크로소프트: "MSFT",
-  마소: "MSFT",
-  nvidia: "NVDA",
-  엔비디아: "NVDA",
-  nvda: "NVDA",
-  amazon: "AMZN",
-  아마존: "AMZN",
-  google: "GOOGL",
-  alphabet: "GOOGL",
-  구글: "GOOGL",
-  알파벳: "GOOGL",
-  meta: "META",
-  메타: "META",
-  facebook: "META",
-  페이스북: "META",
-  tesla: "TSLA",
-  테슬라: "TSLA",
-  모더나: "MRNA",
-  moderna: "MRNA",
-  mrna: "MRNA",
-  삼성전자: "005930",
-  삼성: "005930",
-  삼전: "005930",
-  samsung: "005930",
-  samsungelectronics: "005930",
-  하이닉스: "000660",
-  sk하이닉스: "000660",
-  skhynix: "000660",
-  hynix: "000660",
-  네이버: "035420",
-  naver: "035420",
-  카카오: "035720",
-  kakao: "035720",
-  현대차: "005380",
-  현대자동차: "005380",
-  hyundaimotor: "005380",
-  기아: "000270",
-  kia: "000270",
-  lg에너지솔루션: "373220",
-  lg엔솔: "373220",
-  삼성바이오로직스: "207940",
-  삼바: "207940",
-  lg화학: "051910",
-  삼성sdi: "006400",
-  마이크론: "MU",
-  마이크로: "MU",
-  micron: "MU",
-  block: "SQ",
-  블록: "SQ",
-  스퀘어: "SQ",
-  실sq: "LAES",
-  sealsq: "LAES",
-  실스큐: "LAES",
-  laes: "LAES",
-  sq: "SQ",
-  xe: "XE",
-  xenergy: "XE",
-  "x-energy": "XE",
-  엑스에너지: "XE",
-  satl: "SATL",
-  satellogic: "SATL",
-  새틀로직: "SATL",
-  spaceex: "SPACEX",
-  spacex: "SPACEX",
-  스페이스x: "SPACEX",
-  스페이스엑스: "SPACEX",
-  amd: "AMD",
-  암드: "AMD",
-  브로드컴: "AVGO",
-  broadcom: "AVGO",
-  tsmc: "TSM",
-  대만반도체: "TSM",
-  샌디스크: "SNDK",
-  sandisk: "SNDK",
-  sndk: "SNDK",
-  voo: "VOO",
-  ivv: "IVV",
-  vt: "VT",
-  tqqq: "TQQQ",
-  soxl: "SOXL",
-  upro: "UPRO",
-  brk: "BRK",
-  "brk.b": "BRK.B",
-  버크셔: "BRK.B",
-  버크셔해서웨이: "BRK.B",
-  pltr: "PLTR",
-  팔란티어: "PLTR",
-  palantir: "PLTR",
-  abcl: "ABCL",
-  앱셀레라: "ABCL",
-  abcellera: "ABCL",
-  비트코인: "BTC",
-  bitcoin: "BTC",
-  금: "GLD",
-  골드: "GLD",
-  cash: "CASH",
-  현금: "CASH",
-};
+const popularTickers = ["AAPL", "NVDA", "TSLA", "MSFT", "QQQ", "VOO", "SCHD", "005930", "000660", "ABCL", "TQQQ", "GLD"];
+const screenshotImportEnabled = false;
 
 const translations: Record<string, string> = {
   "US Equity": "미국 주식",
@@ -317,15 +175,18 @@ const translations: Record<string, string> = {
   "Unclassified Equity": "미분류 주식",
   Technology: "기술",
   "Consumer Discretionary": "경기소비재",
+  "Consumer Staples": "필수소비재",
   "Communication Services": "커뮤니케이션",
+  "Health Care": "헬스케어",
   Financials: "금융",
-  Energy: "에너지",
-  Aerospace: "우주항공",
   Industrials: "산업재",
   Materials: "소재",
-  "Health Care": "헬스케어",
+  Energy: "에너지",
+  Aerospace: "우주항공",
   "Broad Market": "광범위 시장",
   "Technology Tilt": "기술주 중심",
+  "Dividend / Quality": "배당/퀄리티",
+  "Technology Income": "기술주 인컴",
   Rates: "금리",
   Gold: "금",
   "Digital Assets": "디지털 자산",
@@ -337,342 +198,834 @@ const translations: Record<string, string> = {
   Local: "현지",
 };
 
-const sampleInput = "AAPL 25%\nMSFT 20%\nNVDA 20%\nSPY 20%\nTLT 10%\nGLD 5%";
-const tesseractScriptSrc = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+export default function Home() {
+  const [lang, setLang] = useState<Lang>("ko");
+  const [draftRows, setDraftRows] = useState<DraftPosition[]>(sampleRows);
+  const [analysisInput, setAnalysisInput] = useState(buildPortfolioInput(sampleRows));
+  const [query, setQuery] = useState("");
+  const [weight, setWeight] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [recentTickers, setRecentTickers] = useState<string[]>([]);
+  const [inputMessage, setInputMessage] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const weightRef = useRef<HTMLInputElement>(null);
+  const t = labels[lang];
 
-function loadOcrScript() {
-  const win = window as typeof window & { Tesseract?: unknown };
-  if (win.Tesseract) return Promise.resolve();
-  const existing = document.querySelector<HTMLScriptElement>(`script[src="${tesseractScriptSrc}"]`);
-  if (existing) {
-    return new Promise<void>((resolve, reject) => {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("OCR script failed")), { once: true });
-    });
-  }
-  return new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = tesseractScriptSrc;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("OCR script failed"));
-    document.head.appendChild(script);
-  });
-}
+  const options = useMemo(() => buildSecurityOptions(), []);
+  const suggestions = useMemo(() => searchSecurities(query, options, recentTickers), [query, options, recentTickers]);
+  const draftTotal = totalWeight(draftRows);
+  const analysis = useMemo(() => analyzePortfolioText(analysisInput), [analysisInput]);
+  const normalized = analysis.portfolio.positions;
+  const sorted = [...normalized].sort((a, b) => b.weight - a.weight);
+  const topHolding = sorted[0] ?? null;
+  const sectors = groupedForUi(groupWeights(normalized, (item) => item.security.sector || "Unknown"), lang);
+  const assets = groupedForUi(groupWeights(normalized, (item) => item.security.assetLabel || item.security.assetType), lang);
+  const regions = groupedForUi(groupWeights(normalized, (item) => item.security.region || "Unknown"), lang);
+  const riskScore = Number(analysis.risk.score.toFixed(1));
+  const tone = toneForScore(riskScore);
+  const personality = generateCharacter(normalized, analysis.features, analysis.risk, lang);
+  const badges = generateBadges(normalized, analysis.features, analysis.risk, lang);
+  const insight = keyInsight(normalized, analysis.features, riskScore, lang);
+  const mascot = mascotFor(personality.dominantTrait, riskScore);
+  const allocationIssue = allocationMessage(draftTotal, t);
+  const hasUnknownDraft = draftRows.some((row) => row.rawName && resolveSecurity(row.rawName).resolution === "fallback");
+  const canAnalyze = draftRows.length > 0 && draftRows.every((row) => row.weight > 0) && draftTotal >= 98 && draftTotal <= 102;
 
-async function readImageText(file: File, onProgress: (progress: number) => void) {
-  await loadOcrScript();
-  const images = await buildOcrImages(file);
-  const tesseract = (window as typeof window & {
-    Tesseract?: {
-      recognize: (
-        image: File | Blob,
-        language: string,
-        options?: { logger?: (message: { status?: string; progress?: number }) => void },
-      ) => Promise<{ data?: { text?: string } }>;
-    };
-  }).Tesseract;
-  if (!tesseract?.recognize) throw new Error("OCR unavailable");
-  const texts: string[] = [];
-  for (let index = 0; index < images.length; index += 1) {
-    const image = images[index];
-    const result = await tesseract.recognize(image, "kor+eng", {
-      logger: (message) => {
-        if (message.status?.includes("recognizing")) {
-          onProgress(Math.round(((index + (message.progress ?? 0)) / images.length) * 100));
-        }
-      },
-    });
-    const text = result.data?.text ?? "";
-    texts.push(text);
-    const rows = parseCaptureText(texts.join("\n"));
-    const usefulNames = rows.filter((row) => /[가-힣]{2,}|^[A-Z.]{1,8}$/i.test(row.name.trim()));
-    if (usefulNames.length >= 2) break;
-  }
-  return texts.join("\n");
-}
-
-async function buildOcrImages(file: File): Promise<(Blob | File)[]> {
-  const bitmap = await createImageBitmap(file);
-  const legendCrop = {
-    x: Math.round(bitmap.width * 0.11),
-    y: Math.round(bitmap.height * 0.42),
-    width: Math.round(bitmap.width * 0.84),
-    height: Math.round(bitmap.height * 0.36),
-  };
-  const wideCrop = {
-    x: Math.round(bitmap.width * 0.04),
-    y: Math.round(bitmap.height * 0.38),
-    width: Math.round(bitmap.width * 0.92),
-    height: Math.round(bitmap.height * 0.45),
-  };
-
-  return [
-    await renderOcrCrop(bitmap, legendCrop, 2.8, 205),
-    await renderOcrCrop(bitmap, wideCrop, 2.2, 195),
-    file,
-  ];
-}
-
-async function renderOcrCrop(
-  bitmap: ImageBitmap,
-  crop: { x: number; y: number; width: number; height: number },
-  scale: number,
-  threshold: number,
-) {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(crop.width * scale);
-  canvas.height = Math.round(crop.height * scale);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) throw new Error("Canvas unavailable");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(bitmap, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
-
-  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  for (let index = 0; index < image.data.length; index += 4) {
-    const red = image.data[index];
-    const green = image.data[index + 1];
-    const blue = image.data[index + 2];
-    const max = Math.max(red, green, blue);
-    const min = Math.min(red, green, blue);
-    const saturation = max === 0 ? 0 : (max - min) / max;
-    const luma = red * 0.299 + green * 0.587 + blue * 0.114;
-    const isColorSwatch = saturation > 0.28 && luma < 235;
-    const value = !isColorSwatch && luma < threshold ? 0 : 255;
-    image.data[index] = value;
-    image.data[index + 1] = value;
-    image.data[index + 2] = value;
-    image.data[index + 3] = 255;
-  }
-  ctx.putImageData(image, 0, 0);
-
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error("Canvas export failed"));
-    }, "image/png");
-  });
-}
-
-async function readImageMetadata(file: File) {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const metadata = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    return metadata;
-  } catch {
-    return {};
-  }
-}
-
-function captureRowsFromPositions(positions: ResolvedExtractedPosition[]): CaptureCandidate[] {
-  return positions.map((position) => {
-    const confidenceScore = Math.min(position.confidence.overall, position.resolutionConfidence);
-    const hasAttentionWarning = (position.warnings ?? []).some((code) =>
-      ["UNKNOWN_SECURITY", "WEIGHT_NOT_FOUND", "MARKET_VALUE_NOT_FOUND", "POSSIBLE_RETURN_PERCENT_AS_WEIGHT", "DUPLICATE_POSITION"].includes(code),
-    );
-    return {
-      name: position.rawName || position.canonicalTicker || position.displayName,
-      weight: position.weight ?? 0,
-      marketValue: position.marketValue,
-      currency: position.marketValueCurrency,
-      source: position.marketValue !== undefined && position.confidence.weight !== undefined && position.confidence.weight < 0.9 ? "amount" : "percent",
-      confidence: hasAttentionWarning ? "low" : captureConfidenceFromScore(confidenceScore),
-      warnings: position.warnings,
-      sourceScreenshotIds: position.sourceScreenshotIds,
-    };
-  });
-}
-
-function captureConfidenceFromScore(score: number): CaptureCandidate["confidence"] {
-  if (score >= 0.9) return "high";
-  if (score >= 0.7) return "medium";
-  return "low";
-}
-
-function captureConfidenceLabel(confidence: CaptureCandidate["confidence"], lang: Lang) {
-  if (confidence === "high") return lang === "ko" ? "인식됨" : "Recognized";
-  if (confidence === "medium") return lang === "ko" ? "확인 필요" : "Please check";
-  return lang === "ko" ? "낮은 확신" : "Low confidence";
-}
-
-function captureRowClass(confidence: CaptureCandidate["confidence"]) {
-  if (confidence === "high") return "border-[#dceade] bg-white";
-  if (confidence === "medium") return "border-[#f0d49b] bg-[#fff9ea]";
-  return "border-[#efb5a8] bg-[#fff4f0]";
-}
-
-function totalCaptureWeight(rows: CaptureCandidate[]) {
-  return rows.reduce((sum, row) => sum + (Number.isFinite(row.weight) ? row.weight : 0), 0);
-}
-
-function formatCaptureAmount(row: CaptureCandidate) {
-  if (!Number.isFinite(row.marketValue ?? Number.NaN)) return "";
-  const amount = row.marketValue ?? 0;
-  if (row.currency === "USD") return `$${amount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-  return `${Math.round(amount).toLocaleString("ko-KR")}원`;
-}
-
-function captureWarningsForUi(warnings: ImportWarning[], lang: Lang) {
-  return warnings.slice(0, 5).map((item) => {
-    if (lang === "en") return item.message;
-    return item.message;
-  });
-}
-
-function localize(label: string, lang: Lang) {
-  return lang === "ko" ? translations[label] ?? label : label;
-}
-
-function normalizeName(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, "")
-    .replace(/보통주|우선주|우\b|주식회사|주식|inc\.?|corp\.?|corporation|co\.?|ltd\.?|plc/g, "")
-    .replace(/[^a-z0-9가-힣.]/g, "");
-}
-
-function editDistance(a: string, b: string) {
-  const dp = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
-  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= a.length; i += 1) {
-    for (let j = 1; j <= b.length; j += 1) {
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
+  function addHolding(name = query, rawWeight = weight) {
+    const cleaned = name.trim();
+    const parsedWeight = Number.parseFloat(rawWeight);
+    if (!cleaned) return;
+    if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
+      setInputMessage(t.missingWeight);
+      weightRef.current?.focus();
+      return;
     }
+
+    const resolved = resolveSecurity(cleaned);
+    const nextRows = [...draftRows, { id: `${cleaned}-${Date.now()}`, rawName: cleaned, weight: parsedWeight }];
+    setDraftRows(nextRows);
+    setQuery("");
+    setWeight("");
+    setRecentTickers((items) => [resolved.ticker, ...items.filter((item) => item !== resolved.ticker)].slice(0, 6));
+    setInputMessage(resolved.resolution === "fallback" ? t.unknown : "");
+    window.setTimeout(() => searchRef.current?.focus(), 0);
   }
-  return dp[a.length][b.length];
+
+  function analyzeDraft() {
+    if (!canAnalyze) {
+      setInputMessage(allocationIssue);
+      return;
+    }
+    setAnalysisInput(buildPortfolioInput(draftRows));
+    setInputMessage(Math.abs(draftTotal - 100) > 0.05 ? t.normalized : "");
+  }
+
+  function applyPaste() {
+    const parsed = parseDraftRows(pasteText);
+    if (parsed.length === 0) return;
+    setDraftRows(parsed);
+    setInputMessage("");
+  }
+
+  function equalWeightAll() {
+    if (draftRows.length === 0) return;
+    const equal = 100 / draftRows.length;
+    setDraftRows(draftRows.map((row) => ({ ...row, weight: equal })));
+    setInputMessage("");
+  }
+
+  function updateRow(id: string, patch: Partial<DraftPosition>) {
+    setDraftRows((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  function removeRow(id: string) {
+    setDraftRows((rows) => rows.filter((row) => row.id !== id));
+  }
+
+  function loadSample() {
+    setDraftRows(sampleRows);
+    setAnalysisInput(buildPortfolioInput(sampleRows));
+    setInputMessage("");
+  }
+
+  function saveImage() {
+    const canvas = drawShareCard({ lang, t, tone, riskScore, personality, badges, topHolding, features: analysis.features, insight, mascot });
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = lang === "ko" ? "portfolio-risk-lens.png" : "portfolio-risk-card.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  async function shareImage() {
+    const canvas = drawShareCard({ lang, t, tone, riskScore, personality, badges, topHolding, features: analysis.features, insight, mascot });
+    if (!canvas) return;
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "portfolio-risk-lens.png", { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title: t.brand, text: personality.name, files: [file] });
+      } else {
+        alert(t.noShare);
+      }
+    });
+  }
+
+  return (
+    <main className="min-h-screen overflow-hidden bg-[#fff5e6] text-[#1e211b]">
+      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-7 px-4 py-5 md:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:py-7">
+        <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
+          <header className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-full bg-[#1e211b] text-sm font-black text-[#ffc767]">PRL</div>
+              <div>
+                <p className="text-sm font-black">{t.brand}</p>
+                <p className="text-xs font-bold text-[#796d5e]">{t.eyebrow}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 rounded-full border border-[#e2cdaa] bg-white/70 p-1 text-xs font-black">
+              <button onClick={() => setLang("ko")} className={`rounded-full px-3 py-2 ${lang === "ko" ? "bg-[#1e211b] text-white" : "text-[#6f6255]"}`}>KO</button>
+              <button onClick={() => setLang("en")} className={`rounded-full px-3 py-2 ${lang === "en" ? "bg-[#1e211b] text-white" : "text-[#6f6255]"}`}>EN</button>
+            </div>
+          </header>
+
+          <section className="grid gap-4">
+            <div className="inline-flex w-fit rotate-[-1deg] rounded-full bg-[#ffd982] px-4 py-2 text-xs font-black text-[#362816] shadow-[4px_4px_0_#1e211b]">
+              82.4 · {lang === "ko" ? "브레이크 없는 반도체 신봉자" : "No-brakes chip believer"}
+            </div>
+            <div>
+              <h1 className="max-w-xl text-4xl font-black leading-[1.05] tracking-normal sm:text-5xl">{t.headline}</h1>
+              <p className="mt-4 max-w-xl text-base font-bold leading-7 text-[#655a4d]">{t.subhead}</p>
+            </div>
+          </section>
+
+          <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-4 shadow-[7px_7px_0_#1e211b]">
+            <div className="rounded-xl bg-[#fff0c9] p-3">
+              <p className="text-sm font-black">{t.riskMeaningTitle}</p>
+              <p className="mt-1 text-xs font-bold leading-5 text-[#685c4b]">{t.riskMeaning}</p>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <p className="text-lg font-black">{t.inputTitle}</p>
+              <div className="grid gap-2 sm:grid-cols-[1fr_120px_74px]">
+                <label className="grid gap-1 text-xs font-black text-[#655a4d]">
+                  {t.searchLabel}
+                  <input
+                    ref={searchRef}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        weightRef.current?.focus();
+                      }
+                    }}
+                    placeholder={t.searchPlaceholder}
+                    className="h-12 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-black text-[#655a4d]">
+                  {t.weightLabel}
+                  <input
+                    ref={weightRef}
+                    value={weight}
+                    inputMode="decimal"
+                    onChange={(event) => setWeight(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addHolding();
+                      }
+                    }}
+                    placeholder={t.weightPlaceholder}
+                    className="h-12 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
+                  />
+                </label>
+                <button type="button" onClick={() => addHolding()} className="self-end rounded-xl bg-[#1e211b] px-3 py-3 text-sm font-black text-white transition hover:translate-y-[-1px]">
+                  {t.add}
+                </button>
+              </div>
+
+              <SuggestionStrip
+                title={query.trim() ? t.searchLabel : recentTickers.length > 0 ? t.recent : t.popular}
+                suggestions={suggestions}
+                query={query}
+                onPick={(option) => {
+                  setQuery(query.trim() ? query.trim() : option.ticker);
+                  weightRef.current?.focus();
+                }}
+              />
+
+              <AllocationMeter total={draftTotal} t={t} />
+              {hasUnknownDraft && <p className="text-xs font-black text-[#af4e35]">{t.unknown}</p>}
+              {inputMessage && <p className="rounded-lg bg-[#fff2d8] px-3 py-2 text-xs font-black text-[#8b5532]">{inputMessage}</p>}
+
+              <div className="overflow-hidden rounded-xl border-2 border-[#ead3ad] bg-white">
+                <div className="flex items-center justify-between border-b border-[#ead3ad] px-3 py-2">
+                  <p className="text-sm font-black">{t.holdings}</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={equalWeightAll} className="rounded-full bg-[#fff0c9] px-3 py-1.5 text-xs font-black text-[#4a3823]">
+                      {t.equalWeight}
+                    </button>
+                    <button type="button" onClick={() => setDraftRows([])} className="rounded-full bg-[#f9e0d5] px-3 py-1.5 text-xs font-black text-[#8d432d]">
+                      {t.clear}
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-auto">
+                  {draftRows.map((row) => {
+                    const resolved = resolveSecurity(row.rawName);
+                    return (
+                      <div key={row.id} className="grid grid-cols-[1fr_92px_52px] items-center gap-2 border-b border-[#f1dfc1] px-3 py-2 last:border-b-0">
+                        <div className="min-w-0">
+                          <input
+                            value={row.rawName}
+                            onChange={(event) => updateRow(row.id, { rawName: event.target.value })}
+                            className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm font-black outline-none focus:border-[#ff8a4c] focus:bg-[#fffaf1]"
+                          />
+                          <p className="truncate px-2 text-[11px] font-bold text-[#817363]">
+                            {resolved.resolution === "fallback" ? t.unknown : `${resolved.ticker} · ${resolved.security.companyName}`}
+                          </p>
+                        </div>
+                        <input
+                          value={formatInputWeight(row.weight)}
+                          inputMode="decimal"
+                          onChange={(event) => updateRow(row.id, { weight: Number.parseFloat(event.target.value) || 0 })}
+                          className="rounded-lg border border-[#ead3ad] bg-[#fffaf1] px-2 py-2 text-sm font-black outline-none focus:border-[#ff8a4c]"
+                        />
+                        <button type="button" onClick={() => removeRow(row.id)} className="rounded-lg bg-[#f7e8dc] py-2 text-xs font-black text-[#91462f]">
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <details className="rounded-xl border border-[#ead3ad] bg-[#fffaf1] p-3">
+                <summary className="cursor-pointer text-sm font-black">{t.pasteTitle}</summary>
+                <textarea
+                  value={pasteText}
+                  onChange={(event) => setPasteText(event.target.value)}
+                  placeholder={t.pastePlaceholder}
+                  className="mt-3 min-h-28 w-full resize-none rounded-xl border border-[#ead3ad] bg-white p-3 font-mono text-xs leading-5 outline-none focus:border-[#ff8a4c]"
+                />
+                <button type="button" onClick={applyPaste} className="mt-2 rounded-xl bg-[#1e211b] px-3 py-2 text-xs font-black text-white">
+                  {t.pasteApply}
+                </button>
+              </details>
+
+              {screenshotImportEnabled && <p className="text-xs font-bold text-[#796d5e]">{t.experimentalImport}</p>}
+
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+                <button type="button" onClick={analyzeDraft} className={`rounded-xl px-4 py-3 text-sm font-black transition ${canAnalyze ? "bg-[#ff8a4c] text-[#1e211b] shadow-[4px_4px_0_#1e211b] hover:translate-y-[-1px]" : "bg-[#e5d4ba] text-[#7b6e5d]"}`}>
+                  {t.analyze}
+                </button>
+                <button type="button" onClick={loadSample} className="rounded-xl bg-white px-3 py-3 text-sm font-black text-[#1e211b] ring-2 ring-[#ead3ad]">
+                  {t.sample}
+                </button>
+                <button type="button" onClick={saveImage} className="rounded-xl bg-[#1e211b] px-3 py-3 text-sm font-black text-white">
+                  {t.save}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div className="grid gap-5">
+          <ShareCard
+            t={t}
+            lang={lang}
+            tone={tone}
+            riskScore={riskScore}
+            personality={personality}
+            badges={badges}
+            topHolding={topHolding}
+            features={analysis.features}
+            insight={insight}
+            mascot={mascot}
+            onSave={saveImage}
+            onShare={shareImage}
+          />
+
+          <section className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+            <div className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
+              <h2 className="text-xl font-black">{t.scoreWhy}</h2>
+              <p className="mt-2 text-sm font-bold text-[#675c50]">
+                {t.biggestReason}: {biggestRiskReason(analysis.risk.breakdown, lang)}
+              </p>
+              <div className="mt-4 grid gap-3">
+                {analysis.risk.breakdown.map((item) => (
+                  <BreakdownRow key={item.key} item={item} lang={lang} />
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
+              <h2 className="text-xl font-black">{t.detail}</h2>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <MiniMetric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} />
+                <MiniMetric label={t.concentration} value={concentrationLabel(analysis.features, lang)} />
+                <MiniMetric label={t.volatility} value={fmt(analysis.features.annualizedVolatility)} />
+                <MiniMetric label={t.effectiveN} value={analysis.features.effectiveNumberOfPositions.toFixed(1)} />
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-5 md:grid-cols-3">
+            <ExposurePanel title={t.allocation} data={assets} accent="#ff8a4c" />
+            <ExposurePanel title={t.sectors} data={sectors} accent="#6fbf8f" />
+            <ExposurePanel title={t.regions} data={regions} accent="#7784d8" />
+          </section>
+
+          <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
+            <h2 className="text-xl font-black">{t.stress}</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {analysis.scenarios.map((scenario) => (
+                <ScenarioTile key={scenario.key} scenario={scenario} lang={lang} />
+              ))}
+            </div>
+          </section>
+
+          <details className="rounded-[18px] border-2 border-[#e5c99e] bg-[#fffaf1] p-5">
+            <summary className="cursor-pointer text-sm font-black">{t.methodology}</summary>
+            <p className="mt-3 text-sm font-bold leading-6 text-[#675c50]">{t.methodologyText}</p>
+            <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.disclaimer}</p>
+          </details>
+        </div>
+      </section>
+    </main>
+  );
 }
 
-function resolveTicker(rawName: string) {
-  const normalized = normalizeName(rawName);
-  const upper = rawName.trim().toUpperCase();
-  if (library[upper]) return upper;
-  if (library[normalized.toUpperCase()]) return normalized.toUpperCase();
-  if (aliases[normalized]) return aliases[normalized];
-
-  const fuzzy = Object.entries(aliases)
-    .map(([alias, ticker]) => ({ alias, ticker, distance: editDistance(normalized, alias) }))
-    .filter(({ alias, distance }) => normalized.length >= 3 && distance <= Math.max(1, Math.floor(alias.length * 0.25)))
-    .sort((a, b) => a.distance - b.distance || a.alias.length - b.alias.length)[0];
-
-  return fuzzy?.ticker ?? upper;
+function SuggestionStrip({
+  title,
+  suggestions,
+  query,
+  onPick,
+}: {
+  title: string;
+  suggestions: SecurityOption[];
+  query: string;
+  onPick: (option: SecurityOption) => void;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs font-black text-[#796d5e]">{title}</p>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {suggestions.slice(0, query.trim() ? 8 : 10).map((option) => (
+          <button
+            key={`${option.ticker}-${option.companyName}`}
+            type="button"
+            onClick={() => onPick(option)}
+            className="shrink-0 rounded-full border border-[#ead3ad] bg-white px-3 py-2 text-left text-xs font-black text-[#2a271f] transition hover:border-[#ff8a4c]"
+          >
+            {option.ticker} <span className="font-bold text-[#827463]">{option.companyName}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function parsePortfolio(value: string): Holding[] {
+function AllocationMeter({ total, t }: { total: number; t: (typeof labels)[Lang] }) {
+  const clamped = Math.min(120, Math.max(0, total));
+  const status =
+    total < 98
+      ? `${fmt(100 - total)} ${t.left}`
+      : total <= 102
+        ? t.complete
+        : `${fmt(total - 100)} ${t.over}`;
+  return (
+    <div className="rounded-xl bg-[#1e211b] p-3 text-white">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-black">{t.currentAllocation}</p>
+        <p className="text-sm font-black">{total.toFixed(1)} / 100%</p>
+      </div>
+      <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/20">
+        <div className={`h-full rounded-full ${total > 102 ? "bg-[#ff5e45]" : total >= 98 ? "bg-[#78d88f]" : "bg-[#ffd36f]"}`} style={{ width: `${Math.min(100, clamped)}%` }} />
+      </div>
+      <p className="mt-2 text-xs font-bold text-white/80">{status}</p>
+    </div>
+  );
+}
+
+function ShareCard({
+  t,
+  lang,
+  tone,
+  riskScore,
+  personality,
+  badges,
+  topHolding,
+  features,
+  insight,
+  mascot,
+  onSave,
+  onShare,
+}: {
+  t: (typeof labels)[Lang];
+  lang: Lang;
+  tone: Tone;
+  riskScore: number;
+  personality: RiskCharacter;
+  badges: Badge[];
+  topHolding: NormalizedPosition | null;
+  features: PortfolioFeatures;
+  insight: string;
+  mascot: ReturnType<typeof mascotFor>;
+  onSave: () => void;
+  onShare: () => void;
+}) {
+  return (
+    <section className="rounded-[24px] border-2 border-[#1e211b] p-4 shadow-[10px_10px_0_#1e211b]" style={{ backgroundColor: tone.card }}>
+      <div className="grid gap-5 lg:grid-cols-[1fr_180px]">
+        <div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-normal" style={{ color: tone.muted }}>{t.brand}</p>
+              <div className="mt-3 flex items-end gap-3">
+                <h2 className="text-7xl font-black leading-none tracking-normal" style={{ color: tone.ink }}>{riskScore.toFixed(1)}</h2>
+                <p className="pb-2 text-sm font-black" style={{ color: tone.accent }}>/100 {t.score}</p>
+              </div>
+              <p className="mt-2 text-sm font-black" style={{ color: tone.muted }}>{t.lowerSafer}</p>
+            </div>
+            <div className="grid h-32 w-32 rotate-[3deg] place-items-center rounded-[28px] border-2 border-[#1e211b] text-6xl shadow-[5px_5px_0_#1e211b]" style={{ backgroundColor: mascot.bg }}>
+              {mascot.icon}
+            </div>
+          </div>
+
+          <RiskMeter score={riskScore} t={t} tone={tone} />
+
+          <div className="mt-6">
+            <p className="text-xs font-black uppercase tracking-normal" style={{ color: tone.accent }}>{t.personality}</p>
+            <h3 className="mt-2 max-w-2xl text-4xl font-black leading-tight tracking-normal" style={{ color: tone.ink }}>{personality.name}</h3>
+            <p className="mt-3 max-w-2xl text-lg font-black leading-7" style={{ color: tone.muted }}>&quot;{personality.quote}&quot;</p>
+          </div>
+        </div>
+
+        <div className="grid content-start gap-3">
+          <p className="text-xs font-black uppercase tracking-normal" style={{ color: tone.accent }}>{t.badges}</p>
+          {badges.map((badge) => (
+            <div key={badge.id} className="rounded-2xl border-2 border-[#1e211b] bg-white/75 p-3">
+              <p className="text-sm font-black" style={{ color: tone.ink }}>{badge.emoji} {badge.title}</p>
+              <p className="mt-1 text-xs font-bold leading-5" style={{ color: tone.muted }}>{badge.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 border-t-2 border-[#1e211b]/15 pt-4 sm:grid-cols-3">
+        <MiniMetric label={t.keyInsight} value={insight} />
+        <MiniMetric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} />
+        <MiniMetric label={t.concentration} value={concentrationLabel(features, lang)} />
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button type="button" onClick={onSave} className="rounded-full bg-[#1e211b] px-4 py-2 text-sm font-black text-white">
+          {t.save}
+        </button>
+        <button type="button" onClick={onShare} className="rounded-full bg-[#ffd36f] px-4 py-2 text-sm font-black text-[#1e211b] ring-2 ring-[#1e211b]">
+          {t.share}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function RiskMeter({ score, t, tone }: { score: number; t: (typeof labels)[Lang]; tone: Tone }) {
+  return (
+    <div className="mt-5">
+      <div className="flex justify-between text-xs font-black" style={{ color: tone.muted }}>
+        <span>0 · {t.safer}</span>
+        <span>100 · {t.riskier}</span>
+      </div>
+      <div className="relative mt-2 h-5 rounded-full border-2 border-[#1e211b] bg-[#6fbf8f]">
+        <div className="absolute inset-y-0 right-0 w-2/3 rounded-r-full bg-gradient-to-r from-[#ffd36f] via-[#ff9a56] to-[#ef5a44]" />
+        <div className="absolute top-1/2 h-9 w-4 -translate-y-1/2 rounded-full border-2 border-[#1e211b] bg-white shadow-[2px_2px_0_#1e211b]" style={{ left: `calc(${score}% - 8px)` }} />
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-white/70 p-3">
+      <p className="text-[11px] font-black text-[#756858]">{label}</p>
+      <p className="mt-1 text-sm font-black leading-5 text-[#1e211b]">{value}</p>
+    </div>
+  );
+}
+
+function BreakdownRow({ item, lang }: { item: RiskBreakdownItem; lang: Lang }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-3 text-sm font-black">
+        <span>{lang === "ko" ? item.labelKo : item.labelEn}</span>
+        <span>+{item.contribution.toFixed(1)}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-[#f0dfc3]">
+        <div className="h-full rounded-full bg-[#ff8a4c]" style={{ width: `${Math.min(100, item.contribution * 4)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ExposurePanel({ title, data, accent }: { title: string; data: [string, number][]; accent: string }) {
+  return (
+    <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
+      <h2 className="text-xl font-black">{title}</h2>
+      <div className="mt-4 grid gap-3">
+        {data.slice(0, 5).map(([label, value]) => (
+          <div key={label}>
+            <div className="mb-1 flex items-center justify-between text-sm font-black">
+              <span>{label}</span>
+              <span>{fmt(value)}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-[#f0dfc3]">
+              <div className="h-full rounded-full" style={{ width: `${Math.min(100, value)}%`, backgroundColor: accent }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ScenarioTile({ scenario, lang }: { scenario: ScenarioResult; lang: Lang }) {
+  const label = lang === "ko" ? scenario.labelKo : scenario.labelEn;
+  const value = scenario.value;
+  return (
+    <div className="rounded-2xl bg-[#fff4df] p-4">
+      <p className="text-sm font-black">{label}</p>
+      <p className={`mt-2 text-3xl font-black ${value < 0 ? "text-[#db553f]" : "text-[#2f8a59]"}`}>
+        {value > 0 ? "+" : ""}{fmt(value)}
+      </p>
+      <p className="mt-2 text-xs font-bold leading-5 text-[#766858]">{scenarioComment(scenario.key, value, lang)}</p>
+    </div>
+  );
+}
+
+function buildSecurityOptions(): SecurityOption[] {
+  const aliasMap = new Map<string, string[]>();
+  Object.entries(aliases).forEach(([alias, ticker]) => {
+    aliasMap.set(ticker, [...(aliasMap.get(ticker) ?? []), alias]);
+  });
+  return Object.values(securityMaster).map((security) => ({
+    ticker: security.ticker,
+    companyName: security.companyName,
+    exchange: security.exchange,
+    aliases: aliasMap.get(security.ticker) ?? [],
+    security,
+  }));
+}
+
+function searchSecurities(query: string, options: SecurityOption[], recentTickers: string[]) {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    const tickers = recentTickers.length > 0 ? recentTickers : popularTickers;
+    return tickers.map((ticker) => options.find((option) => option.ticker === ticker)).filter((item): item is SecurityOption => Boolean(item));
+  }
+  const normalized = normalizeSecurityName(trimmed);
+  const upper = trimmed.toUpperCase();
+  return options
+    .map((option) => {
+      const company = normalizeSecurityName(option.companyName);
+      const aliasScore = option.aliases.reduce((best, alias) => {
+        if (alias === normalized) return Math.max(best, 95);
+        if (alias.includes(normalized) || normalized.includes(alias)) return Math.max(best, 70);
+        return best;
+      }, 0);
+      const score =
+        option.ticker === upper
+          ? 100
+          : option.ticker.startsWith(upper)
+            ? 82
+            : company === normalized
+              ? 92
+              : company.includes(normalized)
+                ? 76
+                : aliasScore;
+      return { option, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.option.ticker.localeCompare(b.option.ticker))
+    .map((item) => item.option);
+}
+
+function parseDraftRows(value: string): DraftPosition[] {
   return value
     .split(/\n|,/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
+    .map((line, index) => {
       const match = line.match(/(.+?)\s+(-?\d+(?:\.\d+)?)\s*%?$/);
-      const rawName = match?.[1]?.trim() || line;
-      const rawWeight = match?.[2] || "0";
-      const ticker = resolveTicker(rawName);
-      const base = library[ticker] ?? {
-        name: rawName,
-        asset: "Unclassified Equity",
-        sector: "Unknown",
-        region: "Unknown",
-        volatility: 30,
-        stress: { techSelloff: -18, rateShock: -8, recession: -20, dollarDrop: -2 },
+      return {
+        id: `paste-${index}-${Date.now()}`,
+        rawName: match?.[1]?.trim() || line,
+        weight: Number.parseFloat(match?.[2] || "0") || 0,
       };
-      const weight = Number.parseFloat(rawWeight);
-      const displayName = /^[A-Z0-9.]+$/.test(rawName.trim()) ? base.name : rawName;
-      return { ticker, displayName, weight: Number.isFinite(weight) ? weight : 0, ...base };
     })
-    .filter((item) => item.ticker && item.weight > 0);
+    .filter((row) => row.rawName);
 }
 
-function groupBy(items: Holding[], key: keyof Pick<Holding, "asset" | "sector" | "region">, lang: Lang) {
-  const grouped = items.reduce<Record<string, number>>((acc, item) => {
-    const label = localize(item[key], lang);
-    acc[label] = (acc[label] || 0) + item.weight;
-    return acc;
-  }, {});
-  return Object.entries(grouped).sort((a, b) => b[1] - a[1]);
+function buildPortfolioInput(rows: DraftPosition[]) {
+  return rows
+    .filter((row) => row.rawName.trim() && Number.isFinite(row.weight) && row.weight > 0)
+    .map((row) => `${row.rawName.trim()} ${formatInputWeight(row.weight)}%`)
+    .join("\n");
+}
+
+function totalWeight(rows: DraftPosition[]) {
+  return rows.reduce((sum, row) => sum + (Number.isFinite(row.weight) ? row.weight : 0), 0);
 }
 
 function groupedForUi(groups: Record<string, number>, lang: Lang) {
   return Object.entries(groups)
-    .map(([label, value]) => [localize(label, lang), value] as [string, number])
+    .map(([label, value]) => [lang === "ko" ? translations[label] ?? label : label, value] as [string, number])
     .sort((a, b) => b[1] - a[1]);
 }
 
-function weighted(items: Holding[], selector: (item: Holding) => number) {
-  const total = items.reduce((sum, item) => sum + item.weight, 0) || 1;
-  return items.reduce((sum, item) => sum + selector(item) * (item.weight / total), 0);
+function toneForScore(score: number) {
+  if (score < 35) return { card: "#eaf8e7", ink: "#1d2b20", muted: "#526352", accent: "#2e9d55" };
+  if (score < 55) return { card: "#fff8d8", ink: "#302816", muted: "#6f6043", accent: "#d6922d" };
+  if (score < 75) return { card: "#fff0df", ink: "#322116", muted: "#7b5b43", accent: "#e87537" };
+  return { card: "#ffe6df", ink: "#321917", muted: "#7e4e48", accent: "#df4f3e" };
 }
 
-function fmt(value: number) {
-  return `${value.toFixed(1)}%`;
+function mascotFor(trait: string, score: number) {
+  if (trait === "semiconductor") return { icon: "▣", bg: "#dff2ff" };
+  if (trait === "biotech") return { icon: "⚗", bg: "#e7f7df" };
+  if (trait === "leverage") return { icon: "3×", bg: "#ffe1d3" };
+  if (trait === "space") return { icon: "↗", bg: "#e7e5ff" };
+  if (trait === "broadEtf") return { icon: "≋", bg: "#ecf8dc" };
+  if (trait === "defensive" || score < 35) return { icon: "□", bg: "#dff4e6" };
+  if (trait === "cash") return { icon: "$", bg: "#e9f9d5" };
+  if (trait === "gold") return { icon: "Au", bg: "#fff0b8" };
+  return { icon: "!", bg: score >= 75 ? "#ffd6ca" : "#ffe9c2" };
 }
 
-function isUnknownLabel(label: string) {
-  return ["Unknown", "미분류", "정보 부족", "Unclassified Equity", "미분류 주식"].includes(label);
+function keyInsight(positions: NormalizedPosition[], features: PortfolioFeatures, riskScore: number, lang: Lang) {
+  const top = [...positions].sort((a, b) => b.weight - a.weight)[0];
+  if (features.leveragedExposure >= 35) return lang === "ko" ? "변동성에 부스터가 달렸습니다." : "Volatility has a booster attached.";
+  if (features.dominantTheme === "semiconductor" && features.thematicConcentration >= 55) return lang === "ko" ? "반도체에 꽤 진심이네요." : "This portfolio really believes in chips.";
+  if (features.dominantTheme === "biotech" && features.thematicConcentration >= 45) return lang === "ko" ? "임상 발표가 계좌 이벤트입니다." : "Clinical readouts matter here.";
+  if (top && top.weight >= 45) return lang === "ko" ? `${top.displayName}가 기침하면 계좌가 감기에 걸립니다.` : `If ${top.displayName} sneezes, the account catches a cold.`;
+  if (features.broadEtfExposure >= 70 && riskScore < 35) return lang === "ko" ? "재미는 조금 없는데 계좌는 오래 삽니다." : "Less dramatic, probably more durable.";
+  if (features.defensiveTilt >= 45) return lang === "ko" ? "수익 인증보다 생존 인증 쪽입니다." : "Survival has a seat at the table.";
+  return lang === "ko" ? "선은 지키지만 욕심도 있습니다." : "Balanced, but not asleep.";
 }
 
-function getTone(score: number) {
-  if (score < 45) {
-    return {
-      page: "#edf9ef",
-      ink: "#10231f",
-      muted: "#4d6f61",
-      card: "#f8fff9",
-      cardSoft: "#dff7e8",
-      accent: "#24c86b",
-      accentSoft: "#147a45",
-      stat: "#ffffff",
-      warning: "#d85b37",
-    };
-  }
-  if (score < 60) {
-    return {
-      page: "#fff7df",
-      ink: "#2b2411",
-      muted: "#746333",
-      card: "#fffdf4",
-      cardSoft: "#fff0b8",
-      accent: "#f4be2a",
-      accentSoft: "#8a6400",
-      stat: "#ffffff",
-      warning: "#c45b22",
-    };
-  }
-  if (score < 75) {
-    return {
-      page: "#fff0e5",
-      ink: "#2f1d12",
-      muted: "#7c5742",
-      card: "#fff9f3",
-      cardSoft: "#ffd9bf",
-      accent: "#f27a36",
-      accentSoft: "#9a4216",
-      stat: "#ffffff",
-      warning: "#c84825",
-    };
-  }
-  return {
-    page: "#fff0f0",
-    ink: "#2f1515",
-    muted: "#7e4d4d",
-    card: "#fff8f8",
-    cardSoft: "#ffd6d6",
-    accent: "#ec4e4e",
-    accentSoft: "#9d2525",
-    stat: "#ffffff",
-    warning: "#b92f2f",
-  };
+function concentrationLabel(features: PortfolioFeatures, lang: Lang) {
+  if ((features.largestPositionWeight ?? 0) >= 60 || features.topThreeWeight >= 85) return lang === "ko" ? "매우 높음" : "Very high";
+  if ((features.largestPositionWeight ?? 0) >= 35 || features.topThreeWeight >= 70) return lang === "ko" ? "높음" : "High";
+  if (features.effectiveNumberOfPositions >= 10) return lang === "ko" ? "낮음" : "Low";
+  return lang === "ko" ? "보통" : "Moderate";
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
+function biggestRiskReason(items: RiskBreakdownItem[], lang: Lang) {
+  const item = [...items].sort((a, b) => b.contribution - a.contribution)[0];
+  return item ? (lang === "ko" ? item.labelKo : item.labelEn) : "-";
+}
+
+function scenarioComment(key: ScenarioResult["key"], value: number, lang: Lang) {
+  if (key === "techSelloff" && value < -25) return lang === "ko" ? "시장보다 먼저 지하주차장에 도착할 수 있어요." : "It may reach the basement before the market does.";
+  if (key === "recession" && value < -25) return lang === "ko" ? "경기침체에는 조금 예민한 편입니다." : "This one is sensitive to recessions.";
+  if (key === "rateShock" && value < -12) return lang === "ko" ? "금리 뉴스에 계좌 표정이 바뀝니다." : "Rate headlines can change the account's mood.";
+  if (value > 0) return lang === "ko" ? "이 시나리오에서는 방어력이 조금 보입니다." : "There is some ballast in this scenario.";
+  return lang === "ko" ? "크게 이상하진 않지만 방심은 금물입니다." : "Not alarming, but worth watching.";
+}
+
+function allocationMessage(total: number, t: (typeof labels)[Lang]) {
+  if (total < 98) return t.allocationLow;
+  if (total > 102) return t.allocationHigh;
+  return t.complete;
+}
+
+function drawShareCard({
+  lang,
+  t,
+  tone,
+  riskScore,
+  personality,
+  badges,
+  topHolding,
+  features,
+  insight,
+  mascot,
+}: {
+  lang: Lang;
+  t: (typeof labels)[Lang];
+  tone: Tone;
+  riskScore: number;
+  personality: RiskCharacter;
+  badges: Badge[];
+  topHolding: NormalizedPosition | null;
+  features: PortfolioFeatures;
+  insight: string;
+  mascot: ReturnType<typeof mascotFor>;
+}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1080;
+  canvas.height = 1920;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.fillStyle = "#fff5e6";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = tone.card;
+  roundRect(ctx, 58, 58, 964, 1804, 42);
+  ctx.fill();
+  ctx.strokeStyle = "#1e211b";
+  ctx.lineWidth = 6;
+  ctx.stroke();
+
+  ctx.fillStyle = tone.ink;
+  ctx.font = "900 46px Arial";
+  ctx.fillText(t.brand, 110, 150);
+  ctx.font = "900 152px Arial";
+  ctx.fillText(riskScore.toFixed(1), 110, 330);
+  ctx.font = "900 42px Arial";
+  ctx.fillStyle = tone.accent;
+  ctx.fillText(`/100 ${t.score}`, 110, 390);
+  ctx.fillStyle = tone.muted;
+  ctx.font = "800 30px Arial";
+  ctx.fillText(t.lowerSafer, 110, 438);
+
+  ctx.fillStyle = mascot.bg;
+  roundRect(ctx, 770, 145, 150, 150, 30);
+  ctx.fill();
+  ctx.strokeStyle = "#1e211b";
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.fillStyle = tone.ink;
+  ctx.font = "900 74px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(mascot.icon, 845, 245);
+  ctx.textAlign = "left";
+
+  drawCanvasRiskMeter(ctx, 110, 520, 860, riskScore, t);
+
+  ctx.fillStyle = tone.accent;
+  ctx.font = "900 30px Arial";
+  ctx.fillText(t.personality, 110, 680);
+  ctx.fillStyle = tone.ink;
+  ctx.font = "900 74px Arial";
+  wrapCanvasText(ctx, personality.name, 110, 780, 840, 84);
+  ctx.fillStyle = tone.muted;
+  ctx.font = "800 38px Arial";
+  wrapCanvasText(ctx, `"${personality.quote}"`, 110, 965, 840, 48);
+
+  ctx.fillStyle = tone.accent;
+  ctx.font = "900 30px Arial";
+  ctx.fillText(t.badges, 110, 1130);
+  badges.slice(0, 3).forEach((badge, index) => {
+    const y = 1180 + index * 126;
+    ctx.fillStyle = "rgba(255,255,255,0.68)";
+    roundRect(ctx, 110, y, 860, 96, 24);
+    ctx.fill();
+    ctx.fillStyle = tone.ink;
+    ctx.font = "900 32px Arial";
+    ctx.fillText(`${badge.emoji} ${badge.title}`, 138, y + 40);
+    ctx.fillStyle = tone.muted;
+    ctx.font = "700 24px Arial";
+    ctx.fillText(badge.description, 138, y + 72);
+  });
+
+  const stats = [
+    [t.keyInsight, insight],
+    [t.largest, topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"],
+    [t.concentration, concentrationLabel(features, lang)],
+  ];
+  stats.forEach(([label, value], index) => {
+    const y = 1560 + index * 96;
+    ctx.fillStyle = tone.muted;
+    ctx.font = "800 25px Arial";
+    ctx.fillText(label, 110, y);
+    ctx.fillStyle = tone.ink;
+    ctx.font = "900 32px Arial";
+    wrapCanvasText(ctx, value, 110, y + 42, 820, 38);
+  });
+
+  return canvas;
+}
+
+function drawCanvasRiskMeter(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, score: number, t: (typeof labels)[Lang]) {
+  ctx.fillStyle = "#6fbf8f";
+  roundRect(ctx, x, y, width, 30, 15);
+  ctx.fill();
+  const gradient = ctx.createLinearGradient(x + width * 0.35, y, x + width, y);
+  gradient.addColorStop(0, "#ffd36f");
+  gradient.addColorStop(0.55, "#ff9a56");
+  gradient.addColorStop(1, "#ef5a44");
+  ctx.fillStyle = gradient;
+  roundRect(ctx, x + width * 0.35, y, width * 0.65, 30, 15);
+  ctx.fill();
+  const markerX = x + (width * score) / 100;
+  ctx.fillStyle = "#ffffff";
+  roundRect(ctx, markerX - 10, y - 14, 20, 58, 9);
+  ctx.fill();
+  ctx.strokeStyle = "#1e211b";
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = "#5b5045";
+  ctx.font = "800 24px Arial";
+  ctx.fillText(`0 · ${t.safer}`, x, y + 68);
+  ctx.fillText(`100 · ${t.riskier}`, x + width - 180, y + 68);
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+}
+
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
   const words = text.split(" ");
   let line = "";
   words.forEach((word) => {
@@ -688,770 +1041,10 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
   if (line) ctx.fillText(line, x, y);
 }
 
-export default function Home() {
-  const [input, setInput] = useState(sampleInput);
-  const [lang, setLang] = useState<Lang>("ko");
-  const [inputMode, setInputMode] = useState<"manual" | "capture">("manual");
-  const [capturePreviews, setCapturePreviews] = useState<string[]>([]);
-  const [captureText, setCaptureText] = useState("");
-  const [captureRows, setCaptureRows] = useState<CaptureCandidate[]>([]);
-  const [captureWarnings, setCaptureWarnings] = useState<ImportWarning[]>([]);
-  const [captureTotal, setCaptureTotal] = useState<number | null>(null);
-  const [detectedBrokers, setDetectedBrokers] = useState<string[]>([]);
-  const [captureStatus, setCaptureStatus] = useState("");
-  const [isReadingCapture, setIsReadingCapture] = useState(false);
-  const t = labels[lang];
-
-  const analysis = useMemo(() => analyzePortfolioText(input), [input]);
-  const normalized = analysis.portfolio.positions;
-  const sectors = groupedForUi(groupWeights(normalized, (item) => item.security.sector || "Unknown"), lang);
-  const assets = groupedForUi(groupWeights(normalized, (item) => item.security.assetLabel || item.security.assetType), lang);
-  const regions = groupedForUi(groupWeights(normalized, (item) => item.security.region || "Unknown"), lang);
-  const sorted = [...normalized].sort((a, b) => b.weight - a.weight);
-  const topHolding = sorted[0] ?? null;
-  const topThree = analysis.features.topThreeWeight;
-  const volatility = analysis.features.annualizedVolatility;
-  const riskScore = Number(analysis.risk.score.toFixed(1));
-  const tone = getTone(riskScore);
-  const personality = generateCharacter(normalized, analysis.features, analysis.risk, lang);
-  const badges = generateBadges(normalized, analysis.features, analysis.risk, lang);
-  const knownSectors = sectors.filter(([label]) => !isUnknownLabel(label));
-  const unknownWeight = analysis.portfolio.unknownWeight;
-  const etfWeight = normalized.filter((item) => item.security.isETF).reduce((sum, item) => sum + item.weight, 0);
-  const semiconductorWeight = normalized.filter((item) => item.security.primaryTheme === "semiconductor").reduce((sum, item) => sum + item.weight, 0);
-  const individualEquityWeight = normalized
-    .filter((item) => !item.security.isETF && ["equity", "private"].includes(item.security.assetType))
-    .reduce((sum, item) => sum + item.weight, 0);
-  const scenarios = analysis.scenarios.map((scenario) => [lang === "ko" ? scenario.labelKo : scenario.labelEn, scenario.value] as const);
-
-  const insights = [
-    unknownWeight > 5
-      ? lang === "ko"
-        ? `입력한 종목 중 ${fmt(unknownWeight)}는 아직 데이터가 부족해요.`
-        : `${fmt(unknownWeight)} of the portfolio uses fallback classifications.`
-      : etfWeight >= 50 && topHolding?.security.isETF
-        ? lang === "ko"
-          ? `${topHolding.displayName} 비중이 가장 크지만 ETF라 단일기업 몰빵과는 달라요.`
-          : `${topHolding.displayName} is the largest line, but as an ETF it is not single-company concentration.`
-      : topHolding && topHolding.weight > 25
-      ? lang === "ko"
-        ? `${topHolding.displayName} 하나가 전체의 ${fmt(topHolding.weight)}를 차지해요.`
-        : `${topHolding.displayName} alone drives ${fmt(topHolding.weight)} of the portfolio.`
-      : lang === "ko"
-        ? `실질 분산 종목 수는 약 ${analysis.features.effectiveNumberOfPositions.toFixed(1)}개예요.`
-        : `Effective diversification is about ${analysis.features.effectiveNumberOfPositions.toFixed(1)} positions.`,
-    semiconductorWeight >= 25
-      ? lang === "ko"
-        ? `삼성전자와 하이닉스 영향으로 반도체 사이클 민감도는 꽤 남아 있어요.`
-        : `The Samsung and SK hynix weights leave meaningful semiconductor-cycle sensitivity.`
-      : sectors[0] && sectors[0][1] > 45
-        ? lang === "ko"
-          ? `${sectors[0][0]} 비중이 ${fmt(sectors[0][1])}로 높은 편이에요.`
-          : `${sectors[0][0]} exposure is high at ${fmt(sectors[0][1])}.`
-      : lang === "ko"
-        ? "섹터 쏠림은 과하지 않은 편이에요."
-        : "Sector exposure is reasonably balanced.",
-    riskScore < 45
-      ? lang === "ko"
-        ? `앱 기준으로 ${riskScore.toFixed(1)}점은 낮은 리스크 구간에 가까워요.`
-        : `${riskScore.toFixed(1)} is on the lower-risk side in this model.`
-      : regions[0] && regions[0][1] > 80
-      ? lang === "ko"
-        ? `${regions[0][0]} 중심 포트폴리오라 지역 분산은 약해요.`
-        : `${regions[0][0]} dominates regional exposure.`
-      : lang === "ko"
-        ? "지역 분산이 어느 정도 들어가 있어요."
-        : "Regional exposure adds some diversification.",
-  ];
-  const feedback = getFeedback({
-    lang,
-    topHolding: topHolding ? { displayName: topHolding.displayName, weight: topHolding.weight, isETF: topHolding.security.isETF } : null,
-    topSector: knownSectors[0],
-    unknownWeight,
-    topThree,
-    volatility,
-    assets,
-    features: analysis.features,
-    etfWeight,
-    semiconductorWeight,
-    individualEquityWeight,
-  });
-
-  function drawCard() {
-    const canvas = document.createElement("canvas");
-    const width = 1080;
-    const height = 1920;
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.fillStyle = tone.page;
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = tone.card;
-    ctx.fillRect(56, 56, width - 112, height - 112);
-    ctx.fillStyle = tone.accent;
-    ctx.fillRect(56, 56, width - 112, 18);
-    ctx.fillStyle = tone.ink;
-    ctx.font = "800 42px Arial";
-    ctx.fillText(t.brand, 104, 150);
-    ctx.font = "700 100px Arial";
-    ctx.fillText(`${riskScore}`, 104, 330);
-    ctx.font = "800 42px Arial";
-    ctx.fillStyle = tone.accent;
-    ctx.fillText(`/100 ${t.score}`, 325, 330);
-    ctx.fillStyle = tone.muted;
-    ctx.font = "800 34px Arial";
-    ctx.fillText(t.investorType, 104, 430);
-    ctx.fillStyle = tone.ink;
-    ctx.font = "800 74px Arial";
-    wrapText(ctx, personality.name, 104, 525, 820, 82);
-    ctx.font = "700 34px Arial";
-    wrapText(ctx, `"${personality.quote}"`, 104, 660, 820, 42);
-
-    ctx.fillStyle = tone.ink;
-    ctx.font = "800 34px Arial";
-    ctx.fillText(t.earnedBadges, 104, 780);
-    badges.slice(0, 3).forEach((badge, index) => {
-      const y = 825 + index * 116;
-      ctx.fillStyle = tone.cardSoft;
-      ctx.fillRect(104, y, 872, 92);
-      ctx.fillStyle = tone.ink;
-      ctx.font = "800 30px Arial";
-      ctx.fillText(`${badge.emoji} ${badge.title}`, 132, y + 38);
-      ctx.font = "500 23px Arial";
-      ctx.fillText(badge.description, 132, y + 70);
-    });
-
-    const statY = 1185;
-    [
-      [t.top3, fmt(topThree)],
-      [t.largest, topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"],
-      [t.vol, fmt(volatility)],
-    ].forEach(([label, value], index) => {
-      const x = 104 + index * 296;
-      ctx.fillStyle = tone.stat;
-      ctx.fillRect(x, statY, 252, 170);
-      ctx.fillStyle = tone.ink;
-      ctx.font = "700 28px Arial";
-      ctx.fillText(label, x + 24, statY + 55);
-      ctx.font = "800 38px Arial";
-      wrapText(ctx, value, x + 24, statY + 112, 205, 44);
-    });
-
-    ctx.fillStyle = tone.ink;
-    ctx.font = "800 34px Arial";
-    ctx.fillText(t.scenarios, 104, 1480);
-    ctx.font = "700 34px Arial";
-    scenarios.slice(0, 3).forEach(([label, value], index) => {
-      const y = 1560 + index * 90;
-      ctx.fillStyle = tone.muted;
-      ctx.fillText(label, 104, y);
-      ctx.fillStyle = value < 0 ? tone.warning : tone.accentSoft;
-      ctx.fillText(`-> ${value > 0 ? "+" : ""}${fmt(value)}`, 760, y);
-    });
-    return canvas;
-  }
-
-  function saveImage() {
-    const canvas = drawCard();
-    if (!canvas) return;
-    const link = document.createElement("a");
-    link.download = lang === "ko" ? "portfolio-risk-story.png" : "portfolio-risk-card.png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  }
-
-  async function shareImage() {
-    const canvas = drawCard();
-    if (!canvas) return;
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-      const file = new File([blob], "portfolio-risk-lens.png", { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title: t.brand, text: personality.name, files: [file] });
-      } else {
-        alert(t.noShare);
-      }
-    });
-  }
-
-  async function handleCaptureUpload(files?: FileList | File[]) {
-    const selectedFiles = Array.from(files ?? []).filter((file) => /^image\/(png|jpe?g|webp)$/i.test(file.type));
-    if (selectedFiles.length === 0) return;
-    setCapturePreviews(selectedFiles.map((file) => URL.createObjectURL(file)));
-    setCaptureText("");
-    setCaptureRowsAndTotal([]);
-    setCaptureWarnings([]);
-    setDetectedBrokers([]);
-    setIsReadingCapture(true);
-    setCaptureStatus(`${t.captureReading} 0%`);
-    try {
-      const screenshots: UploadedScreenshot[] = [];
-      const texts: string[] = [];
-      for (let index = 0; index < selectedFiles.length; index += 1) {
-        const file = selectedFiles[index];
-        const metadata = await readImageMetadata(file);
-        const text = await readImageText(file, (progress) => {
-          const base = Math.round(((index + progress / 100) / selectedFiles.length) * 100);
-          setCaptureStatus(`${t.captureReading} ${base}%`);
-        });
-        texts.push(text);
-        screenshots.push({
-          id: `shot-${Date.now()}-${index}`,
-          fileName: file.name,
-          mimeType: file.type,
-          ...metadata,
-          text,
-        });
-      }
-      const importer = new ScreenshotPortfolioImporter();
-      const result = await importer.import({ screenshots });
-      const rows = captureRowsFromPositions(result.positions);
-      setCaptureText(texts.join("\n\n---\n\n"));
-      setCaptureRowsAndTotal(rows);
-      setCaptureWarnings(result.warnings);
-      setDetectedBrokers([
-        ...new Set(
-          (result.screenshotSession?.detectedBrokerages ?? [])
-            .map((item) => [item.app, item.broker].filter(Boolean).join(" / "))
-            .filter((item) => item && !item.includes("unknown")),
-        ),
-      ]);
-      setCaptureStatus(rows.length > 0 ? t.captureReady : t.captureEmpty);
-    } catch {
-      setCaptureStatus(t.captureFallback);
-    } finally {
-      setIsReadingCapture(false);
-    }
-  }
-
-  async function refreshCaptureRows(text: string) {
-    setCaptureText(text);
-    const importer = new ScreenshotPortfolioImporter();
-    const result = await importer.import({
-      screenshots: [{ id: "pasted-text", text }],
-    });
-    const rows = captureRowsFromPositions(result.positions);
-    setCaptureWarnings(result.warnings);
-    setCaptureRowsAndTotal(rows);
-    setCaptureStatus(rows.length > 0 ? t.captureReady : t.captureEmpty);
-  }
-
-  function updateCaptureRow(index: number, patch: Partial<CaptureCandidate>) {
-    setCaptureRows((rows) => {
-      const nextRows = rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch, confidence: "medium" } : row));
-      setCaptureTotal(totalCaptureWeight(nextRows));
-      return nextRows;
-    });
-  }
-
-  function applyCaptureRows() {
-    const nextInput = candidatesToManualInput(captureRows);
-    if (nextInput) {
-      setInput(nextInput);
-      setInputMode("manual");
-    }
-  }
-
-  function setCaptureRowsAndTotal(rows: CaptureCandidate[]) {
-    setCaptureRows(rows);
-    setCaptureTotal(rows.length > 0 ? totalCaptureWeight(rows) : null);
-  }
-
-  return (
-    <main className="min-h-screen text-[#10231f]" style={{ backgroundColor: tone.page }}>
-      <section className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8">
-        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
-          <header className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-md bg-[#10231f] text-lg font-black text-[#f2b84b]">R</div>
-              <span className="text-sm font-black uppercase tracking-[0.12em] text-[#42665c]">{t.brand}</span>
-            </div>
-            <div className="grid grid-cols-2 rounded-md border border-[#d7cfc1] bg-white p-1 text-sm font-black">
-              <button onClick={() => setLang("ko")} className={`rounded px-3 py-2 ${lang === "ko" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>KO</button>
-              <button onClick={() => setLang("en")} className={`rounded px-3 py-2 ${lang === "en" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>EN</button>
-            </div>
-          </header>
-
-          <div>
-            <h1 className="text-4xl font-black leading-tight text-[#10231f] sm:text-5xl">{t.headline}</h1>
-            <p className="mt-4 text-base leading-7 text-[#4a5f59]">{t.subhead}</p>
-          </div>
-
-          <section className="rounded-lg border border-[#d6cec0] bg-white p-4 shadow-sm">
-            <label htmlFor="portfolio-input" className="text-sm font-black">{t.input}</label>
-            <div className="mt-3 grid grid-cols-2 rounded-md border border-[#d6cec0] bg-[#f8f5ee] p-1 text-sm font-black">
-              <button type="button" onClick={() => setInputMode("manual")} className={`rounded px-3 py-2 ${inputMode === "manual" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>
-                {t.manual}
-              </button>
-              <button type="button" onClick={() => setInputMode("capture")} className={`rounded px-3 py-2 ${inputMode === "capture" ? "bg-[#10231f] text-white" : "text-[#52655f]"}`}>
-                {t.capture}
-              </button>
-            </div>
-            {inputMode === "manual" && (
-              <textarea
-                id="portfolio-input"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder={t.placeholder}
-                spellCheck={false}
-                className="mt-3 min-h-48 w-full resize-none rounded-md border border-[#d6cec0] bg-[#fffdf8] p-4 font-mono text-sm leading-7 outline-none transition focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
-              />
-            )}
-            {inputMode === "capture" && (
-            <div className="mt-4 rounded-md border border-[#d6cec0] bg-[#f8f5ee] p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-black">{t.capture}</p>
-                  <p className="mt-1 text-xs font-bold text-[#6d7b76]">{t.captureSupport}</p>
-                  <p className="mt-1 text-xs font-bold text-[#6d7b76]">{t.capturePrivacy}</p>
-                </div>
-                <label htmlFor="capture-upload" className="cursor-pointer rounded-md bg-[#2f7d6d] px-3 py-2 text-sm font-black text-white transition hover:bg-[#286c5e]">
-                  {t.captureCta}
-                </label>
-                <input
-                  id="capture-upload"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(event) => {
-                    void handleCaptureUpload(event.target.files ?? undefined);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </div>
-              {capturePreviews.length > 0 && (
-                <p className="mt-3 text-xs font-black text-[#42665c]">
-                  {t.captureCount}: {capturePreviews.length}
-                  {detectedBrokers.length > 0 ? ` · ${t.brokerAuto}: ${detectedBrokers.join(", ")}` : ""}
-                </p>
-              )}
-              {captureStatus && <p className="mt-3 text-xs font-black text-[#42665c]">{captureStatus}</p>}
-              {capturePreviews.length > 0 && (
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {capturePreviews.map((src) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={src}
-                      src={src}
-                      alt=""
-                      className="h-28 w-full rounded-md border border-[#d6cec0] object-cover"
-                    />
-                  ))}
-                </div>
-              )}
-              {(captureText || capturePreviews.length > 0) && (
-                <div className="mt-3 grid gap-3">
-                  <textarea
-                    value={captureText}
-                    onChange={(event) => setCaptureText(event.target.value)}
-                    placeholder={t.ocrText}
-                    className="min-h-24 w-full resize-none rounded-md border border-[#d6cec0] bg-white p-3 text-xs leading-5 outline-none focus:border-[#2f7d6d] focus:ring-4 focus:ring-[#2f7d6d]/15"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => void refreshCaptureRows(captureText)} className="rounded-md bg-[#10231f] px-3 py-2 text-xs font-black text-white">{t.findCandidates}</button>
-                    <button type="button" onClick={() => setCaptureRowsAndTotal([...captureRows, { name: "", weight: 0, source: "percent", confidence: "low", warnings: ["NEEDS_USER_REVIEW"] }])} className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#10231f] ring-1 ring-[#d6cec0]">{t.addRow}</button>
-                    <button type="button" onClick={applyCaptureRows} disabled={captureRows.length === 0 || isReadingCapture} className="rounded-md bg-[#f2b84b] px-3 py-2 text-xs font-black text-[#10231f] disabled:cursor-not-allowed disabled:opacity-50">{t.applyCapture}</button>
-                  </div>
-                </div>
-              )}
-              {captureTotal !== null && (
-                <div className={`mt-3 rounded-md px-3 py-2 text-xs font-black ${captureTotal >= 98 && captureTotal <= 102 ? "bg-[#eaf5ed] text-[#24664a]" : "bg-[#fff0e8] text-[#9d432b]"}`}>
-                  {t.totalAllocation}: {fmt(captureTotal)}
-                </div>
-              )}
-              {captureWarnings.length > 0 && (
-                <div className="mt-3 rounded-md border border-[#ead8b2] bg-[#fff9ea] px-3 py-2">
-                  <p className="text-xs font-black text-[#8a5d16]">{t.warnings}</p>
-                  {captureWarningsForUi(captureWarnings, lang).map((message, index) => (
-                    <p key={`${message}-${index}`} className="mt-1 text-xs font-bold leading-5 text-[#7b6743]">{message}</p>
-                  ))}
-                </div>
-              )}
-              {captureRows.length > 0 && (
-                <div className="mt-3 overflow-x-auto rounded-md border border-[#d6cec0] bg-white">
-                  <div className="min-w-[650px]">
-                    <div className="grid grid-cols-[1.1fr_90px_130px_110px_60px] bg-[#efe9dd] px-3 py-2 text-xs font-black text-[#52655f]">
-                      <span>{t.name}</span>
-                      <span>{t.weight}</span>
-                      <span>{t.marketValue}</span>
-                      <span>{t.confidence}</span>
-                      <span />
-                    </div>
-                    {captureRows.map((row, index) => (
-                      <div key={`${row.name}-${index}`} className={`grid grid-cols-[1.1fr_90px_130px_110px_60px] gap-2 border-t px-3 py-2 ${captureRowClass(row.confidence)}`}>
-                        <input
-                          value={row.name}
-                          onChange={(event) => updateCaptureRow(index, { name: event.target.value })}
-                          className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
-                        />
-                        <input
-                          value={Number.isFinite(row.weight) ? row.weight.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") : ""}
-                          inputMode="decimal"
-                          onChange={(event) => updateCaptureRow(index, { weight: Number.parseFloat(event.target.value) || 0 })}
-                          className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
-                        />
-                        <input
-                          value={formatCaptureAmount(row)}
-                          onChange={(event) => updateCaptureRow(index, { marketValue: Number.parseFloat(event.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                          className="min-w-0 rounded border border-[#d6cec0] px-2 py-2 text-sm font-bold outline-none focus:border-[#2f7d6d]"
-                        />
-                        <span className="flex items-center rounded bg-white/80 px-2 text-xs font-black text-[#52655f]">
-                          {captureConfidenceLabel(row.confidence, lang)}
-                        </span>
-                        <button type="button" onClick={() => setCaptureRowsAndTotal(captureRows.filter((_, rowIndex) => rowIndex !== index))} className="rounded bg-[#f6eee4] text-xs font-black text-[#8a4630]">
-                          {t.remove}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            )}
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <button onClick={() => setInput(sampleInput)} className="rounded-md bg-[#10231f] px-3 py-3 text-sm font-black text-white transition hover:bg-[#1c3c35]">{t.sample}</button>
-              <button onClick={saveImage} className="rounded-md bg-[#f2b84b] px-3 py-3 text-sm font-black text-[#10231f] transition hover:bg-[#e6a92e]">{t.save}</button>
-              <button onClick={shareImage} className="rounded-md bg-[#2f7d6d] px-3 py-3 text-sm font-black text-white transition hover:bg-[#286c5e]">{t.share}</button>
-            </div>
-            <p className="mt-4 text-xs leading-5 text-[#6d7b76]">{t.unmatched}</p>
-          </section>
-        </div>
-
-        <div className="grid gap-5">
-          <section className="grid gap-5 xl:grid-cols-[390px_1fr]">
-            <StoryCard
-              t={t}
-              riskScore={riskScore}
-              personality={personality}
-              badges={badges}
-              topThree={topThree}
-              topHolding={topHolding}
-              volatility={volatility}
-              scenarios={scenarios}
-              tone={tone}
-            />
-            <section className="rounded-lg border border-black/10 p-5 shadow-xl" style={{ backgroundColor: tone.card, color: tone.ink }}>
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-black uppercase tracking-[0.16em]" style={{ color: tone.accentSoft }}>{t.score}</p>
-                  <h2 className="mt-2 text-4xl font-black">{riskScore}/100</h2>
-                </div>
-                <div className="rounded-md px-4 py-3 text-right" style={{ backgroundColor: tone.cardSoft }}>
-                  <p className="text-xs" style={{ color: tone.muted }}>{t.story}</p>
-                  <p className="max-w-56 text-xl font-black" style={{ color: tone.accent }}>{personality.name}</p>
-                </div>
-              </div>
-              <div className="mt-5 h-4 rounded-full bg-black/10">
-                <div className="h-4 rounded-full" style={{ width: `${riskScore}%`, backgroundColor: tone.accent }} />
-              </div>
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <Metric label={t.top3} value={fmt(topThree)} tone={tone} />
-                <Metric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} tone={tone} />
-                <Metric label={t.vol} value={fmt(volatility)} tone={tone} />
-              </div>
-              <div className="mt-5 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
-                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.earnedBadges}</p>
-                <div className="mt-3 grid gap-2">
-                  {badges.map((badge) => (
-                    <p key={badge.id} className="text-sm font-black">{badge.emoji} {badge.title}</p>
-                  ))}
-                </div>
-              </div>
-              <details className="mt-5 rounded-md p-4" style={{ backgroundColor: tone.stat }}>
-                <summary className="cursor-pointer text-sm font-black" style={{ color: tone.accentSoft }}>{t.whyScore}</summary>
-                <div className="mt-4 grid gap-2">
-                  {analysis.risk.breakdown.map((item) => (
-                    <div key={item.key} className="flex items-center justify-between gap-3 text-sm font-bold">
-                      <span>{lang === "ko" ? item.labelKo : item.labelEn}</span>
-                      <span>{item.contribution.toFixed(1)}</span>
-                    </div>
-                  ))}
-                  <div className="mt-2 flex items-center justify-between border-t border-black/10 pt-3 text-sm font-black">
-                    <span>{t.total}</span>
-                    <span>{riskScore.toFixed(1)}</span>
-                  </div>
-                </div>
-              </details>
-            </section>
-          </section>
-
-          <section className="grid gap-5 md:grid-cols-3">
-            <Panel title={t.assets} data={assets} accent="#2f7d6d" />
-            <Panel title={t.sectors} data={sectors} accent="#d86847" />
-            <Panel title={t.regions} data={regions} accent="#5b68b9" />
-          </section>
-
-          <section className="rounded-lg border border-[#d6cec0] bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">{t.scenarios}</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {scenarios.map(([label, value]) => (
-                <div key={label} className="rounded-md bg-[#f6f3ec] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-black">{label}</span>
-                    <span className={`text-xl font-black ${value < 0 ? "text-[#c34e32]" : "text-[#2f7d6d]"}`}>→ {value > 0 ? "+" : ""}{fmt(value)}</span>
-                  </div>
-                  <div className="mt-3 h-2 rounded-full bg-[#e1dacd]">
-                    <div className={`h-2 rounded-full ${value < 0 ? "bg-[#d86847]" : "bg-[#2f7d6d]"}`} style={{ width: `${Math.min(100, Math.abs(value) * 3)}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-[#d6cec0] bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">{t.readout}</h2>
-            <div className="mt-4 grid gap-3">
-              {insights.map((text) => (
-                <p key={text} className="rounded-md bg-[#eef6f2] px-4 py-3 text-sm font-bold text-[#234940]">{text}</p>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-[#d6cec0] bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black">{t.feedback}</h2>
-            <div className="mt-4 grid gap-3">
-              {feedback.map((text) => (
-                <p key={text} className="rounded-md bg-[#fff7df] px-4 py-3 text-sm font-bold text-[#5d4310]">{text}</p>
-              ))}
-            </div>
-          </section>
-        </div>
-      </section>
-    </main>
-  );
+function fmt(value: number) {
+  return `${value.toFixed(1)}%`;
 }
 
-function getStyle(score: number, lang: Lang, topThree: number, defensiveWeight: number) {
-  if (score >= 78 && topThree > 72) return lang === "ko" ? "하이 리스크 하이 텐션" : "High-risk high-conviction";
-  if (score >= 78) return lang === "ko" ? "스릴을 즐기는 투자자" : "Thrill-seeking investor";
-  if (score >= 58 && topThree > 70) return lang === "ko" ? "한 방을 노리는 성장러" : "Big-swing growth hunter";
-  if (score >= 58) return lang === "ko" ? "하이 리스크 하이 리턴 후보" : "High-risk high-return contender";
-  if (score >= 38 && defensiveWeight > 25) return lang === "ko" ? "버핏의 애제자" : "Buffett's favorite pupil";
-  if (score >= 38) return lang === "ko" ? "균형 잡힌 성장형" : "Balanced growth investor";
-  if (defensiveWeight > 35) return lang === "ko" ? "분산투자의 신" : "Diversification master";
-  return lang === "ko" ? "차분한 생존형" : "Calm survivor";
-}
-
-function getMainRisk({
-  lang,
-  topHolding,
-  topSector,
-  unknownWeight,
-}: {
-  lang: Lang;
-  topHolding: { displayName: string; weight: number } | null;
-  topSector?: [string, number];
-  unknownWeight: number;
-}) {
-  if (topSector && topSector[1] > 45) {
-    return lang === "ko" ? `${topSector[0]} 쏠림` : `${topSector[0]} concentration`;
-  }
-  if (topHolding && topHolding.weight > 26) {
-    return lang === "ko" ? `${topHolding.displayName} 비중 과다` : `${topHolding.displayName} concentration`;
-  }
-  if (unknownWeight > 35) {
-    return lang === "ko" ? "종목 정보 부족" : "Limited ticker data";
-  }
-  return lang === "ko" ? "하락장 민감도" : "Market drawdown sensitivity";
-}
-
-Object.freeze({ parsePortfolio, groupBy, weighted, getStyle, getMainRisk });
-
-function getFeedback({
-  lang,
-  topHolding,
-  topSector,
-  unknownWeight,
-  topThree,
-  volatility,
-  assets,
-  features,
-  etfWeight,
-  semiconductorWeight,
-  individualEquityWeight,
-}: {
-  lang: Lang;
-  topHolding: { displayName: string; weight: number; isETF: boolean } | null;
-  topSector?: [string, number];
-  unknownWeight: number;
-  topThree: number;
-  volatility: number;
-  assets: [string, number][];
-  features: PortfolioFeatures;
-  etfWeight: number;
-  semiconductorWeight: number;
-  individualEquityWeight: number;
-}) {
-  const bondWeight = assets
-    .filter(([label]) => ["채권", "장기채", "Bonds", "Long Bonds"].includes(label))
-    .reduce((sum, [, value]) => sum + value, 0);
-  const ideas: string[] = [];
-
-  if (etfWeight >= 50) {
-    ideas.push(
-      lang === "ko"
-        ? "ETF 비중이 높아서 기본 분산은 이미 들어가 있어요. 더 낮추고 싶다면 종목 수보다 QQQ 중심의 기술주 민감도를 먼저 조절하는 쪽이 자연스러워요."
-        : "The ETF weight already provides built-in diversification. To reduce risk further, adjusting QQQ-style tech sensitivity matters more than simply adding more tickers.",
-    );
-  }
-  if (topHolding && !topHolding.isETF && topHolding.weight > 28) {
-    ideas.push(
-      lang === "ko"
-        ? `${topHolding.displayName} 비중을 조금 낮추면 한 종목에 끌려가는 위험이 줄어요.`
-        : `Trimming ${topHolding.displayName} would reduce single-name dependency.`,
-    );
-  }
-  if (semiconductorWeight >= 25) {
-    ideas.push(
-      lang === "ko"
-        ? `삼성전자와 하이닉스를 합치면 ${fmt(semiconductorWeight)}라 메모리/HBM 사이클 영향이 커요. 이 부분을 줄이면 점수보다 실제 체감 변동성이 먼저 낮아질 수 있어요.`
-        : `Samsung and SK hynix add up to ${fmt(semiconductorWeight)}, so memory and HBM-cycle exposure is meaningful.`,
-    );
-  } else if (topSector && topSector[1] > 55 && etfWeight < 50) {
-    ideas.push(
-      lang === "ko"
-        ? `${topSector[0]} 비중이 커서 같은 업황에 함께 흔들릴 수 있어요. 다른 섹터를 섞으면 점수가 내려갑니다.`
-        : `Adding sectors beyond ${topSector[0]} would make the portfolio less one-sided.`,
-    );
-  }
-  if (bondWeight < 10 && features.defensiveTilt < 5 && volatility > 20) {
-    ideas.push(
-      lang === "ko"
-        ? "방어자산이 거의 없어서 하락장에서 완충 장치는 약해요. 채권, 현금, 금을 소량 섞으면 수익 기대보다 변동성 관리에 도움이 됩니다."
-        : "There is very little defensive ballast. A small bond, cash, or gold sleeve would help manage swings more than expected return.",
-    );
-  }
-  if (topThree > 70 && etfWeight < 50) {
-    ideas.push(
-      lang === "ko"
-        ? "상위 3개 비중이 커서, 새 종목을 사기보다 기존 큰 비중을 나누는 게 먼저예요."
-        : "The top three positions dominate, so splitting the largest weights matters before adding more tickers.",
-    );
-  }
-  if (unknownWeight > 5) {
-    ideas.push(
-      lang === "ko"
-        ? "아직 데이터가 부족한 종목이 있어요. 종목 사전에 들어오면 자산 구성과 섹터 분석이 더 정확해집니다."
-        : "Some tickers still use fallback data. Adding them to the security master makes the exposure view more precise.",
-    );
-  }
-  if (ideas.length < 3 && individualEquityWeight < 35 && etfWeight >= 60) {
-    ideas.push(
-      lang === "ko"
-        ? "개별주 비중은 과하지 않은 편이에요. 지금 포트폴리오의 핵심 질문은 종목 수가 아니라 미국 성장주 비중을 어느 정도까지 편하게 감당할 수 있느냐에 가까워요."
-        : "Single-stock exposure is not excessive. The main question is how much US growth exposure you are comfortable carrying.",
-    );
-  }
-
-  if (ideas.length === 0) {
-    ideas.push(
-      lang === "ko"
-        ? "큰 쏠림은 적은 편이에요. 리밸런싱 주기만 정해도 리스크 관리가 훨씬 쉬워져요."
-        : "No major concentration stands out. A simple rebalancing schedule may be enough.",
-    );
-  }
-
-  return ideas.slice(0, 3);
-}
-
-function Metric({ label, value, tone }: { label: string; value: string; tone: ReturnType<typeof getTone> }) {
-  return (
-    <div className="rounded-md p-4" style={{ backgroundColor: tone.stat }}>
-      <p className="text-xs" style={{ color: tone.muted }}>{label}</p>
-      <p className="mt-1 break-words text-xl font-black">{value}</p>
-    </div>
-  );
-}
-
-function StoryCard({
-  t,
-  riskScore,
-  personality,
-  badges,
-  topThree,
-  topHolding,
-  volatility,
-  scenarios,
-  tone,
-}: {
-  t: (typeof labels)[Lang];
-  riskScore: number;
-  personality: { name: string; quote: string };
-  badges: { id: string; emoji: string; title: string; description: string }[];
-  topThree: number;
-  topHolding: { displayName: string; weight: number } | null;
-  volatility: number;
-  scenarios: readonly (readonly [string, number])[];
-  tone: ReturnType<typeof getTone>;
-}) {
-  return (
-    <section className="mx-auto w-full max-w-[390px] rounded-lg border border-black/10 p-5 shadow-xl" style={{ backgroundColor: tone.card, color: tone.ink }}>
-      <div className="aspect-[9/16] rounded-md border border-black/10 p-6" style={{ backgroundColor: tone.card }}>
-        <div className="h-1.5 w-full rounded-full" style={{ backgroundColor: tone.accent }} />
-        <p className="mt-8 text-sm font-black uppercase tracking-[0.16em]" style={{ color: tone.accentSoft }}>{t.story}</p>
-        <p className="mt-5 text-7xl font-black tracking-normal">{riskScore}</p>
-        <p className="text-2xl font-black" style={{ color: tone.accent }}>/100 {t.score}</p>
-        <p className="mt-7 text-sm font-black" style={{ color: tone.muted }}>{t.investorType}</p>
-        <h2 className="mt-2 text-4xl font-black leading-tight">{personality.name}</h2>
-        <p className="mt-3 text-base font-bold leading-6" style={{ color: tone.muted }}>&quot;{personality.quote}&quot;</p>
-        <div className="mt-6 rounded-md p-4" style={{ backgroundColor: tone.cardSoft }}>
-          <p className="text-xs font-black uppercase tracking-[0.14em]" style={{ color: tone.accentSoft }}>{t.earnedBadges}</p>
-          <div className="mt-3 grid gap-2">
-            {badges.slice(0, 3).map((badge) => (
-              <div key={badge.id} className="rounded-md bg-white/70 p-2">
-                <p className="text-sm font-black">{badge.emoji} {badge.title}</p>
-                <p className="mt-1 text-[11px] font-bold" style={{ color: tone.muted }}>{badge.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-[#10231f]">
-          <SmallStat label={t.top3} value={fmt(topThree)} tone={tone} />
-          <SmallStat label={t.largest} value={topHolding ? topHolding.displayName : "-"} tone={tone} />
-          <SmallStat label={t.vol} value={fmt(volatility)} tone={tone} />
-        </div>
-        <div className="mt-5 space-y-2">
-          {scenarios.slice(0, 3).map(([label, value]) => (
-            <div key={label} className="flex justify-between gap-3 text-sm font-black">
-              <span style={{ color: tone.muted }}>{label}</span>
-              <span style={{ color: value < 0 ? tone.warning : tone.accentSoft }}>→ {value > 0 ? "+" : ""}{fmt(value)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SmallStat({ label, value, tone }: { label: string; value: string; tone: ReturnType<typeof getTone> }) {
-  return (
-    <div className="rounded-md p-3" style={{ backgroundColor: tone.stat }}>
-      <p className="text-[10px] font-bold text-[#60716b]">{label}</p>
-      <p className="mt-1 break-words text-sm font-black">{value}</p>
-    </div>
-  );
-}
-
-function Panel({ title, data, accent }: { title: string; data: [string, number][]; accent: string }) {
-  return (
-    <section className="rounded-lg border border-[#d6cec0] bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-black">{title}</h2>
-      <div className="mt-4 grid gap-3">
-        {data.slice(0, 5).map(([label, value]) => (
-          <div key={label}>
-            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-              <span className="font-bold">{label}</span>
-              <span className="text-[#586a64]">{fmt(value)}</span>
-            </div>
-            <div className="h-2 rounded-full bg-[#ebe4d8]">
-              <div className="h-2 rounded-full" style={{ width: `${value}%`, backgroundColor: accent }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+function formatInputWeight(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }

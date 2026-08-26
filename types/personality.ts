@@ -24,6 +24,11 @@ export type BadgeDefinition = {
   id: string;
   family: string;
   priority: number;
+  relevance?: (context: {
+    holdings: NormalizedPosition[];
+    features: PortfolioFeatures;
+    risk: RiskResult;
+  }) => number;
   eligibility: (context: {
     holdings: NormalizedPosition[];
     features: PortfolioFeatures;
