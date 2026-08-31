@@ -535,8 +535,6 @@ export default function Home() {
             </div>
           </section>
 
-          <RiskFormulaPanel t={t} lang={lang} positions={normalized} breakdown={analysis.risk.breakdown} score={riskScore} />
-
           <section className="grid gap-5 md:grid-cols-3">
             <ExposurePanel title={t.allocation} data={assets} accent="#ff8a4c" />
             <ExposurePanel title={t.sectors} data={sectors} accent="#6fbf8f" />
@@ -555,6 +553,7 @@ export default function Home() {
           <details className="rounded-[18px] border-2 border-[#e5c99e] bg-[#fffaf1] p-5">
             <summary className="cursor-pointer text-sm font-black">{t.methodology}</summary>
             <p className="mt-3 text-sm font-bold leading-6 text-[#675c50]">{t.methodologyText}</p>
+            <RiskFormulaContent t={t} lang={lang} positions={normalized} breakdown={analysis.risk.breakdown} score={riskScore} />
             <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.disclaimer}</p>
           </details>
         </div>
@@ -772,7 +771,7 @@ function ScenarioTile({ scenario, lang }: { scenario: ScenarioResult; lang: Lang
   );
 }
 
-function RiskFormulaPanel({
+function RiskFormulaContent({
   t,
   lang,
   positions,
@@ -787,34 +786,32 @@ function RiskFormulaPanel({
 }) {
   const confidence = dataConfidence(positions);
   return (
-    <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
-      <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-        <div>
-          <h2 className="text-xl font-black">{t.formulaTitle}</h2>
-          <p className="mt-2 text-sm font-bold leading-6 text-[#675c50]">{t.formulaIntro}</p>
-          <p className="mt-3 rounded-xl bg-[#fff0c9] p-3 text-sm font-black leading-6 text-[#46351f]">{t.formula}</p>
-          <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.formulaNote}</p>
+    <div className="mt-5 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <div>
+        <p className="text-sm font-black">{t.formulaTitle}</p>
+        <p className="mt-2 text-sm font-bold leading-6 text-[#675c50]">{t.formulaIntro}</p>
+        <p className="mt-3 rounded-xl bg-[#fff0c9] p-3 text-sm font-black leading-6 text-[#46351f]">{t.formula}</p>
+        <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.formulaNote}</p>
+      </div>
+      <div className="rounded-2xl bg-white/70 p-4">
+        <p className="text-xs font-black text-[#756858]">{t.formulaThisScore}</p>
+        <p className="mt-1 text-3xl font-black">{score.toFixed(1)}</p>
+        <div className="mt-3 grid gap-2">
+          {breakdown.map((item) => (
+            <div key={item.key} className="flex items-center justify-between gap-3 text-xs font-black">
+              <span>{lang === "ko" ? item.labelKo : item.labelEn} {Math.round(item.weight * 100)}%</span>
+              <span>{item.score.toFixed(1)} × {item.weight.toFixed(2)} = {item.contribution.toFixed(1)}</span>
+            </div>
+          ))}
         </div>
-        <div className="rounded-2xl bg-white/70 p-4">
-          <p className="text-xs font-black text-[#756858]">{t.formulaThisScore}</p>
-          <p className="mt-1 text-3xl font-black">{score.toFixed(1)}</p>
-          <div className="mt-3 grid gap-2">
-            {breakdown.map((item) => (
-              <div key={item.key} className="flex items-center justify-between gap-3 text-xs font-black">
-                <span>{lang === "ko" ? item.labelKo : item.labelEn} {Math.round(item.weight * 100)}%</span>
-                <span>{item.score.toFixed(1)} × {item.weight.toFixed(2)} = {item.contribution.toFixed(1)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 border-t border-[#ead3ad] pt-3">
-            <p className="text-xs font-black text-[#756858]">{t.dataConfidence}</p>
-            <p className="mt-1 text-xs font-bold leading-5 text-[#675c50]">
-              {t.curatedData} {fmt(confidence.curated)} · {t.estimatedData} {fmt(confidence.generated)} · {t.unknownData} {fmt(confidence.unknown)}
-            </p>
-          </div>
+        <div className="mt-4 border-t border-[#ead3ad] pt-3">
+          <p className="text-xs font-black text-[#756858]">{t.dataConfidence}</p>
+          <p className="mt-1 text-xs font-bold leading-5 text-[#675c50]">
+            {t.curatedData} {fmt(confidence.curated)} · {t.estimatedData} {fmt(confidence.generated)} · {t.unknownData} {fmt(confidence.unknown)}
+          </p>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
