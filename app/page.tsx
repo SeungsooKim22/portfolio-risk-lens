@@ -563,17 +563,9 @@ function AtomLogo() {
   return (
     <div
       aria-hidden="true"
-      className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full border-2 border-[#b56b5f] bg-white shadow-[0_3px_0_#ead0c8]"
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 border-[#b56b5f] bg-white shadow-[0_3px_0_#ead0c8]"
     >
-      <span className="absolute left-[17px] top-[7px] h-3.5 w-3.5 rounded-full bg-[#b45b50]" />
-      <span className="absolute left-[11px] top-[10px] h-4 w-4 rounded-full bg-[#d08979]" />
-      <span className="absolute left-[23px] top-[11px] h-3.5 w-3.5 rounded-full bg-[#6e625d]" />
-      <span className="absolute left-[18px] top-[15px] h-3 w-3 rounded-full bg-[#8e433e]" />
-      <span className="absolute left-[20px] top-[18px] h-[11px] w-1.5 -translate-x-1/2 rounded-full bg-[#9f4c43]" />
-      <span className="absolute bottom-[7px] left-1/2 h-[24px] w-[25px] -translate-x-1/2 rounded-t-[13px] border-2 border-[#9f4c43] bg-[#c86f61]" />
-      <span className="absolute bottom-[12px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-white" />
-      <span className="absolute bottom-[7px] left-[10px] h-2 w-[24px] rounded-full bg-[#8f453f]/30" />
-      <span className="absolute bottom-[4px] left-[8px] h-2.5 w-[28px] rounded-full bg-[#9f4c43]" />
+      <span className="h-9 w-9 bg-[url('/reactor-logo.png')] bg-contain bg-center bg-no-repeat" />
     </div>
   );
 }
