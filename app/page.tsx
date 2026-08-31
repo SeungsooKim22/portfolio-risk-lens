@@ -80,13 +80,25 @@ const labels = {
     methodology: "리스크 점수는 어떻게 계산되나요?",
     methodologyText: "변동성, 하방 위험, 종목 집중도, 시장 민감도, 레버리지, 개별기업 위험을 종합해 계산합니다. 미래 수익률을 예측하는 점수는 아닙니다.",
     disclaimer: "재미와 참고를 위한 분석이며 투자 권유나 미래 수익률 예측이 아닙니다.",
-    unknown: "이 종목은 아직 잘 모르겠어요. 티커를 한번 확인해주세요.",
+    unknown: "아직 지원 데이터에 없는 종목이에요. 아래 지원 데이터에서 확인하거나 티커를 다시 넣어주세요.",
     missingWeight: "비중 하나가 비어 있어요. 저도 계산은 숫자가 있어야 합니다.",
     allocationLow: "아직 포트폴리오가 덜 찼어요.",
     allocationHigh: "포트폴리오가 100%를 넘었어요. 레버리지는 아직 입력 기능에 없습니다.",
     normalized: "소수점 차이는 100% 기준으로 맞춰 분석했어요.",
     noShare: "이 브라우저에서는 이미지 저장으로 공유해주세요.",
     experimentalImport: "캡처 업로드는 v1에서 실험 기능으로 숨겨두었습니다.",
+    dataTrustTitle: "현재 지원 데이터",
+    dataTrustLead: "아래 목록에 있는 종목과 ETF는 섹터, 지역, 변동성 가정을 넣어 분석합니다. 목록 밖 종목은 아직 미분류로 계산될 수 있어요.",
+    supportedCount: "지원 종목",
+    aliasCount: "검색 별칭",
+    usListedCount: "미국 상장",
+    koreaListedCount: "한국 상장",
+    etfCount: "ETF/채권/원자재",
+    datasetSearch: "지원 여부 검색",
+    datasetPlaceholder: "NVDA, 엔비디아, 삼성전자, SCHD...",
+    datasetLimit: "정식 배포 전 기준: 직접 검수한 큐레이션 데이터셋입니다. 전 나스닥·코스피 종목 지원을 보장하지 않습니다.",
+    noDatasetResults: "아직 지원 데이터에 없는 종목입니다.",
+    aliasPreview: "별칭",
   },
   en: {
     brand: "Portfolio Risk Lens",
@@ -138,13 +150,25 @@ const labels = {
     methodology: "How is the risk score calculated?",
     methodologyText: "It combines volatility, downside risk, concentration, market sensitivity, leverage, and company-specific risk. It does not predict future returns.",
     disclaimer: "For fun and educational reference only. Not investment advice or a return forecast.",
-    unknown: "I do not know this security yet. Please check the ticker.",
+    unknown: "This name is not in the supported dataset yet. Check the dataset below or try the ticker.",
     missingWeight: "One weight is missing. The math still needs numbers.",
     allocationLow: "The portfolio is not filled yet.",
     allocationHigh: "The portfolio is above 100%. Leverage is not an input feature here.",
     normalized: "Tiny rounding differences were normalized to 100%.",
     noShare: "This browser cannot share files directly. Please save the image.",
     experimentalImport: "Screenshot upload is hidden as an experimental v1 feature.",
+    dataTrustTitle: "Current supported data",
+    dataTrustLead: "Securities and ETFs in this list use reviewed sector, region, volatility, and stress assumptions. Names outside the list may still be treated as unclassified.",
+    supportedCount: "Supported names",
+    aliasCount: "Search aliases",
+    usListedCount: "US listed",
+    koreaListedCount: "Korea listed",
+    etfCount: "ETFs/bonds/commodities",
+    datasetSearch: "Check support",
+    datasetPlaceholder: "NVDA, NVIDIA, Samsung, SCHD...",
+    datasetLimit: "Pre-launch note: this is a manually reviewed curated dataset, not guaranteed full NASDAQ/KOSPI coverage.",
+    noDatasetResults: "This name is not in the supported dataset yet.",
+    aliasPreview: "Aliases",
   },
 };
 
@@ -207,12 +231,15 @@ export default function Home() {
   const [pasteText, setPasteText] = useState("");
   const [recentTickers, setRecentTickers] = useState<string[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [catalogQuery, setCatalogQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const weightRef = useRef<HTMLInputElement>(null);
   const t = labels[lang];
 
   const options = useMemo(() => buildSecurityOptions(), []);
   const suggestions = useMemo(() => searchSecurities(query, options, recentTickers), [query, options, recentTickers]);
+  const catalogSummary = useMemo(() => summarizeCatalog(options), [options]);
+  const catalogRows = useMemo(() => filterCatalog(catalogQuery, options), [catalogQuery, options]);
   const draftTotal = totalWeight(draftRows);
   const analysis = useMemo(() => analyzePortfolioText(analysisInput), [analysisInput]);
   const normalized = analysis.portfolio.positions;
@@ -532,6 +559,15 @@ export default function Home() {
             <p className="mt-3 text-sm font-bold leading-6 text-[#675c50]">{t.methodologyText}</p>
             <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.disclaimer}</p>
           </details>
+
+          <DatasetPanel
+            t={t}
+            lang={lang}
+            summary={catalogSummary}
+            rows={catalogRows}
+            query={catalogQuery}
+            onQueryChange={setCatalogQuery}
+          />
         </div>
       </section>
     </main>
@@ -747,6 +783,78 @@ function ScenarioTile({ scenario, lang }: { scenario: ScenarioResult; lang: Lang
   );
 }
 
+function DatasetPanel({
+  t,
+  lang,
+  summary,
+  rows,
+  query,
+  onQueryChange,
+}: {
+  t: (typeof labels)[Lang];
+  lang: Lang;
+  summary: ReturnType<typeof summarizeCatalog>;
+  rows: SecurityOption[];
+  query: string;
+  onQueryChange: (value: string) => void;
+}) {
+  return (
+    <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-xl font-black">{t.dataTrustTitle}</h2>
+          <p className="mt-2 max-w-2xl text-sm font-bold leading-6 text-[#675c50]">{t.dataTrustLead}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <MiniMetric label={t.supportedCount} value={`${summary.total}`} />
+        <MiniMetric label={t.aliasCount} value={`${summary.aliasCount}`} />
+        <MiniMetric label={t.usListedCount} value={`${summary.usListed}`} />
+        <MiniMetric label={t.koreaListedCount} value={`${summary.koreaListed}`} />
+        <MiniMetric label={t.etfCount} value={`${summary.fundLike}`} />
+      </div>
+
+      <label className="mt-4 grid gap-1 text-xs font-black text-[#655a4d]">
+        {t.datasetSearch}
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder={t.datasetPlaceholder}
+          className="h-12 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
+        />
+      </label>
+
+      <div className="mt-3 max-h-80 overflow-auto rounded-xl border-2 border-[#ead3ad] bg-white">
+        {rows.length === 0 ? (
+          <p className="px-3 py-4 text-sm font-black text-[#af4e35]">{t.noDatasetResults}</p>
+        ) : (
+          rows.map((option) => (
+            <div key={`${option.ticker}-${option.companyName}`} className="grid gap-1 border-b border-[#f1dfc1] px-3 py-3 last:border-b-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="text-sm font-black">
+                  {option.ticker} <span className="font-bold text-[#655a4d]">{option.companyName}</span>
+                </p>
+                <p className="text-xs font-black text-[#8a6a45]">{option.exchange ?? option.security.assetLabel}</p>
+              </div>
+              <p className="text-xs font-bold leading-5 text-[#817363]">
+                {translateLabel(option.security.assetLabel, lang)} · {translateLabel(option.security.sector ?? "Unknown", lang)} · {translateLabel(option.security.region ?? "Unknown", lang)}
+              </p>
+              {option.aliases.length > 0 && (
+                <p className="truncate text-[11px] font-bold text-[#9a8b77]">
+                  {t.aliasPreview}: {option.aliases.slice(0, 6).join(", ")}
+                </p>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.datasetLimit}</p>
+    </section>
+  );
+}
+
 function buildSecurityOptions(): SecurityOption[] {
   const aliasMap = new Map<string, string[]>();
   Object.entries(aliases).forEach(([alias, ticker]) => {
@@ -759,6 +867,16 @@ function buildSecurityOptions(): SecurityOption[] {
     aliases: aliasMap.get(security.ticker) ?? [],
     security,
   }));
+}
+
+function summarizeCatalog(options: SecurityOption[]) {
+  return {
+    total: options.length,
+    aliasCount: Object.keys(aliases).length,
+    usListed: options.filter((option) => ["NASDAQ", "NYSE", "NYSEARCA"].includes(option.exchange ?? "")).length,
+    koreaListed: options.filter((option) => option.exchange === "KOSPI").length,
+    fundLike: options.filter((option) => ["etf", "bond", "commodity"].includes(option.security.assetType)).length,
+  };
 }
 
 function searchSecurities(query: string, options: SecurityOption[], recentTickers: string[]) {
@@ -794,6 +912,23 @@ function searchSecurities(query: string, options: SecurityOption[], recentTicker
     .map((item) => item.option);
 }
 
+function filterCatalog(query: string, options: SecurityOption[]) {
+  const trimmed = query.trim();
+  const sorted = [...options].sort((a, b) => (a.exchange ?? "").localeCompare(b.exchange ?? "") || a.ticker.localeCompare(b.ticker));
+  if (!trimmed) return sorted;
+  const normalized = normalizeSecurityName(trimmed);
+  const upper = trimmed.toUpperCase();
+  return sorted.filter((option) => {
+    const company = normalizeSecurityName(option.companyName);
+    return (
+      option.ticker === upper ||
+      option.ticker.includes(upper) ||
+      company.includes(normalized) ||
+      option.aliases.some((alias) => alias.includes(normalized) || normalized.includes(alias))
+    );
+  });
+}
+
 function parseDraftRows(value: string): DraftPosition[] {
   return value
     .split(/\n|,/)
@@ -825,6 +960,10 @@ function groupedForUi(groups: Record<string, number>, lang: Lang) {
   return Object.entries(groups)
     .map(([label, value]) => [lang === "ko" ? translations[label] ?? label : label, value] as [string, number])
     .sort((a, b) => b[1] - a[1]);
+}
+
+function translateLabel(label: string, lang: Lang) {
+  return lang === "ko" ? translations[label] ?? label : label;
 }
 
 function toneForScore(score: number) {

@@ -24,7 +24,7 @@ export const badgeDefinitions: BadgeDefinition[] = [
     relevance: ({ features }) => 80 + features.leveragedExposure,
     eligibility: ({ features }) => features.leveragedExposure >= 60,
     variants: [
-      { emoji: "🌊", ko: { title: "한강뷰 아니면 한강", description: "3배로 오르면 인생이 바뀝니다. 반대도 가능합니다." }, en: { title: "Penthouse or pavement", description: "Triple speed changes lives both ways." } },
+      { emoji: "🌊", ko: { title: "오르막도 내리막도 3배속", description: "방향을 맞히면 빠르지만, 흔들림도 같이 커집니다." }, en: { title: "Triple-speed uphill and down", description: "The ride accelerates in both directions." } },
       { emoji: "⚡", ko: { title: "3배속 인생", description: "복리도 3배, 멘탈 테스트도 3배입니다." }, en: { title: "Triple-speed life", description: "Compounding and stress both accelerate." } },
       { emoji: "🎢", ko: { title: "계좌가 놀이기구", description: "하루 변동폭이 충분히 스릴 있습니다." }, en: { title: "Account theme ride", description: "Daily moves come with their own thrill." } },
     ],
@@ -59,7 +59,7 @@ export const badgeDefinitions: BadgeDefinition[] = [
     relevance: ({ features }) => 35 + (features.largestPositionWeight ?? 0),
     eligibility: ({ features }) => (features.largestPositionWeight ?? 0) >= 40 || features.topThreeWeight >= 78,
     variants: [
-      { emoji: "🎯", ko: { title: "분산투자는 결석", description: "맞으면 크게 맞고, 틀리면 크게 배웁니다." }, en: { title: "Diversification absent", description: "Right or wrong, this one will be loud." } },
+      { emoji: "🎯", ko: { title: "쏠림 경고등", description: "맞으면 크게 웃지만, 틀리면 꽤 크게 배웁니다." }, en: { title: "Concentration alert", description: "Right or wrong, this position will be loud." } },
       { emoji: "🧲", ko: { title: "종목 하나에 진심", description: "계좌의 무게중심이 확실합니다." }, en: { title: "Very sincere about one name", description: "The center of gravity is obvious." } },
     ],
   },
@@ -70,7 +70,7 @@ export const badgeDefinitions: BadgeDefinition[] = [
     relevance: ({ features }) => 35 + features.thematicConcentration,
     eligibility: ({ features }) => features.dominantTheme === "semiconductor" && features.thematicConcentration >= 45,
     variants: [
-      { emoji: "🧠", ko: { title: "HBM이 곧 조국", description: "반도체 업황이 곧 내 경기입니다." }, en: { title: "HBM is home", description: "The chip cycle is the personal cycle." } },
+      { emoji: "🧠", ko: { title: "HBM에 진심", description: "반도체 업황이 곧 내 경기입니다." }, en: { title: "Serious about HBM", description: "The chip cycle is the personal cycle." } },
       { emoji: "▣", ko: { title: "실리콘 포트폴리오", description: "웨이퍼 없이는 계좌가 허전합니다." }, en: { title: "Silicon portfolio", description: "The account feels empty without wafers." } },
       { emoji: "📈", ko: { title: "CAPEX 심박수", description: "투자 뉴스에 계좌가 반응합니다." }, en: { title: "CAPEX pulse", description: "Investment headlines move the mood." } },
     ],
@@ -95,7 +95,7 @@ export const badgeDefinitions: BadgeDefinition[] = [
     eligibility: ({ features }) => features.dominantTheme === "technology" && features.growthTilt >= 55,
     variants: [
       { emoji: "🖥️", ko: { title: "나스닥 시민권자", description: "빅테크가 세상을 먹는다고 믿습니다." }, en: { title: "Nasdaq citizen", description: "Big Tech eating the world is the base case." } },
-      { emoji: "☁️", ko: { title: "서버 냄새 납니다", description: "클라우드 매출이 금리보다 먼저 보입니다." }, en: { title: "Smells like servers", description: "Cloud revenue shows up before rates." } },
+      { emoji: "☁️", ko: { title: "AI 인프라 레이더", description: "클라우드와 데이터센터 수요를 먼저 봅니다." }, en: { title: "AI infrastructure radar", description: "Cloud and data-center demand show up first." } },
     ],
   },
   {

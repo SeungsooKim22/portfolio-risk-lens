@@ -8,6 +8,11 @@ import { calculatePositionWeights } from "../lib/screenshot/calculateWeights.ts"
 import { validateRawExtraction } from "../lib/screenshot/validateExtraction.ts";
 import { candidatesToManualInput, parseCaptureText } from "../lib/portfolio/captureImport.ts";
 import { MockScreenshotExtractionProvider } from "../providers/screenshot/MockScreenshotExtractionProvider.ts";
+import { aliases } from "../data/aliases.ts";
+import { badgeDefinitions } from "../data/badgeDefinitions.ts";
+import { archetypeDefinitions, riskModifierPools } from "../data/characterDefinitions.ts";
+import { memeProfiles } from "../data/memeProfiles.ts";
+import { securityMaster } from "../data/securityMaster.ts";
 
 function summarize(input: string) {
   const analysis = analyzePortfolioText(input);
@@ -84,6 +89,53 @@ test("scores stay bounded", () => {
     for (const value of Object.values(analysis.risk.components)) {
       assert.ok(value >= 0 && value <= 100);
     }
+  }
+});
+
+test("release copy avoids unclear or unsafe meme wording", () => {
+  const copy = JSON.stringify({
+    archetypeDefinitions,
+    badgeDefinitions,
+    memeProfiles,
+    riskModifierPools,
+  });
+  const forbidden = [
+    "서버 냄새",
+    "데이터센터 냄새",
+    "한강뷰 아니면 한강",
+    "패자의 변명",
+    "목숨 두 개인",
+    "칼 한센의 아들",
+    "Server-scented",
+    "Smells like servers",
+    "Penthouse or pavement",
+    "Two-lives",
+  ];
+
+  for (const phrase of forbidden) {
+    assert.equal(copy.includes(phrase), false, `${phrase} should not ship in public copy`);
+  }
+});
+
+test("supported security dataset is internally consistent", () => {
+  const requiredTickers = ["AAPL", "MSFT", "NVDA", "TSLA", "MRNA", "ABCL", "XE", "LAES", "RKLB", "LPTH", "WMT", "SCHD", "JEPQ", "QQQ", "SPY", "BRK.B", "005930", "000660", "005380", "207940"];
+  assert.ok(Object.keys(securityMaster).length >= 40);
+
+  for (const [alias, ticker] of Object.entries(aliases)) {
+    assert.ok(securityMaster[ticker], `${alias} points to missing ticker ${ticker}`);
+  }
+
+  for (const ticker of requiredTickers) {
+    assert.ok(securityMaster[ticker], `${ticker} should be in the release dataset`);
+  }
+
+  for (const [ticker, security] of Object.entries(securityMaster)) {
+    assert.ok(security.assetLabel, `${ticker} is missing assetLabel`);
+    assert.ok(security.sector, `${ticker} is missing sector`);
+    assert.ok(security.region, `${ticker} is missing region`);
+    assert.ok(Number.isFinite(security.expectedVolatility), `${ticker} is missing expectedVolatility`);
+    assert.ok(Number.isFinite(security.beta), `${ticker} is missing beta`);
+    assert.ok(security.stress, `${ticker} is missing stress profile`);
   }
 });
 

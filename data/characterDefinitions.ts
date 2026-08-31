@@ -8,8 +8,8 @@ export const riskModifierPools = {
     { min: 50, max: 59.9, variants: ["살짝 공격적인", "속도를 내는", "슬슬 대담해지는"] },
     { min: 60, max: 69.9, variants: ["대담한", "심박수 높은", "안전벨트만 맨"] },
     { min: 70, max: 79.9, variants: ["겁 없는", "스릴을 아는", "손절 버튼과 친하지 않은"] },
-    { min: 80, max: 89.9, variants: ["브레이크 없는", "계좌가 롤러코스터인", "리스크 관리팀이 싫어할"] },
-    { min: 90, max: 100, variants: ["목숨 두 개인", "계좌가 먼저 달리는", "내일보다 다음 실적 발표가 중요한"] },
+    { min: 80, max: 89.9, variants: ["브레이크 없는", "계좌가 롤러코스터인", "리스크 관리팀이 놀랄"] },
+    { min: 90, max: 100, variants: ["멘탈이 두꺼운", "계좌가 먼저 달리는", "내일보다 다음 실적 발표가 중요한"] },
   ],
   en: [
     { min: 0, max: 9.9, variants: ["Fortress-level", "Ultra-defensive", "Three-seatbelt"] },
@@ -20,8 +20,8 @@ export const riskModifierPools = {
     { min: 50, max: 59.9, variants: ["Slightly aggressive", "Picking up speed", "Getting bolder"] },
     { min: 60, max: 69.9, variants: ["Bold", "High-heart-rate", "Seatbelt-only"] },
     { min: 70, max: 79.9, variants: ["Fearless", "Thrill-aware", "Stop-loss-unfriendly"] },
-    { min: 80, max: 89.9, variants: ["No-brakes", "Roller-coaster-account", "Risk-team-approved-never"] },
-    { min: 90, max: 100, variants: ["Two-lives", "Account-first", "Earnings-call-over-tomorrow"] },
+    { min: 80, max: 89.9, variants: ["No-brakes", "Roller-coaster-account", "Risk-team-surprising"] },
+    { min: 90, max: 100, variants: ["Thick-skinned", "Account-first", "Earnings-call-over-tomorrow"] },
   ],
 };
 
@@ -48,22 +48,22 @@ export const archetypeDefinitions = {
   },
   technology: {
     ko: {
-      variants: ["실리콘밸리 주민", "빅테크 신봉자", "나스닥 시민권자", "서버 냄새 나는 투자자"],
+      variants: ["실리콘밸리 주민", "빅테크 신봉자", "나스닥 시민권자", "AI 인프라 추적자"],
       quotes: [
         "빅테크가 세상을 먹는다고 믿습니다.",
         "AI가 쉬면 계좌도 같이 쉽니다.",
         "S&P 500보다 매그니피센트 7이 더 친숙합니다.",
-        "포트폴리오에서 데이터센터 냄새가 납니다.",
+        "데이터센터 수요에 계좌가 반응합니다.",
         "금리보다 클라우드 매출을 먼저 봅니다.",
       ],
     },
     en: {
-      variants: ["Silicon Valley resident", "Big Tech believer", "Nasdaq citizen", "Server-scented investor"],
+      variants: ["Silicon Valley resident", "Big Tech believer", "Nasdaq citizen", "AI infrastructure tracker"],
       quotes: [
         "Big Tech eating the world is still the base case.",
         "If AI takes a break, the account does too.",
         "The Magnificent 7 feel more familiar than the whole S&P 500.",
-        "This portfolio smells faintly like a data center.",
+        "This portfolio is sensitive to data-center demand.",
         "Cloud revenue shows up before rates on the watchlist.",
       ],
     },

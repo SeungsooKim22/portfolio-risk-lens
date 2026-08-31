@@ -18,7 +18,7 @@ Personality Engine은 risk score를 계산하지 않는다. 이미 계산된 `Po
 - 브레이크 없는 반도체 신봉자
 - 겁 없는 바이오 외길 투자자
 - 극도로 신중한 폭락장 생존자
-- 목숨 두 개인 레버리지 광인
+- 멘탈이 두꺼운 레버리지 투자자
 
 ## Deterministic Variation
 

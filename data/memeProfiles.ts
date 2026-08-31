@@ -51,7 +51,7 @@ export const memeProfiles: Record<string, MemeProfile> = {
     ticker: "ABCL",
     figure: "칼 한센",
     concentrationTitles: {
-      high: ["칼 한센의 아들", "AbCellera 명예 연구원"],
+      high: ["AbCellera 장기 관찰자", "AbCellera 명예 연구원"],
       extreme: ["칼 한센보다 ABCL 비중이 높습니다", "사실상 AbCellera와 운명공동체"],
     },
   },

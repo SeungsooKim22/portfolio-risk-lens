@@ -97,7 +97,7 @@ export const aliases: Record<string, string> = {
   tqqq: "TQQQ",
   soxl: "SOXL",
   upro: "UPRO",
-  brk: "BRK",
+  brk: "BRK.B",
   "brk.b": "BRK.B",
   버크셔: "BRK.B",
   버크셔해서웨이: "BRK.B",

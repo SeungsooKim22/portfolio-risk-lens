@@ -35,8 +35,8 @@ const riskCharacters = [
   { min: 35, max: 49, name: "월가의 모범생", quote: "오를 것도 사고, 버틸 것도 샀습니다." },
   { min: 50, max: 64, name: "적당히 미친 투자자", quote: "안전벨트는 맸습니다. 속도는 좀 냅니다." },
   { min: 65, max: 79, name: "야수의 심장", quote: "변동성? 그게 수익의 입장료 아닌가요?" },
-  { min: 80, max: 89, name: "한강뷰 아니면 한강", quote: "중간은 없습니다." },
-  { min: 90, max: 100, name: "계좌가 먼저 움직이고 뇌가 따라갑니다", quote: "리스크 관리팀이 보면 기절합니다." },
+  { min: 80, max: 89, name: "오르막도 내리막도 3배속", quote: "중간 속도는 없습니다." },
+  { min: 90, max: 100, name: "계좌가 먼저 움직이고 뇌가 따라갑니다", quote: "리스크 관리팀이 보면 놀랄 수 있습니다." },
 ];
 
 const englishCharacters = [
@@ -45,7 +45,7 @@ const englishCharacters = [
   { min: 35, max: 49, name: "Wall Street Honor Student", quote: "Some assets rise. Some assets help you survive." },
   { min: 50, max: 64, name: "Reasonably Unreasonable", quote: "Seatbelt on. Speed still up." },
   { min: 65, max: 79, name: "Heart of a Beast", quote: "Volatility is just the ticket price." },
-  { min: 80, max: 89, name: "Penthouse or Pavement", quote: "There is no middle lane." },
+  { min: 80, max: 89, name: "Triple-Speed Uphill and Down", quote: "There is no middle lane." },
   { min: 90, max: 100, name: "Account Moves Before Brain", quote: "Risk managers would need a chair." },
 ];
 
@@ -56,7 +56,7 @@ const companyProfiles: Record<string, { emoji: string; title: string; descriptio
   BRK: { emoji: "🥤", title: "버핏의 애제자", description: "코카콜라를 마시며 복리를 기다립니다." },
   "BRK.B": { emoji: "🥤", title: "버핏의 애제자", description: "코카콜라를 마시며 복리를 기다립니다." },
   PLTR: { emoji: "🕵️", title: "알렉스 카프의 비밀요원", description: "무슨 회사인지 몰라도 일단 미래 같긴 합니다." },
-  ABCL: { emoji: "🧬", title: "칼 한센의 아들", description: "이 정도면 AbCellera IR보다 회사를 많이 봅니다." },
+  ABCL: { emoji: "🧬", title: "AbCellera 장기 관찰자", description: "이 정도면 AbCellera IR보다 회사를 많이 봅니다." },
   "005930": { emoji: "📱", title: "삼성전자 명예 임원", description: "반도체 사이클을 가족 행사처럼 챙깁니다." },
   "000660": { emoji: "🧠", title: "HBM 신봉자", description: "메모리 가격표가 내 심박수를 결정합니다." },
 };
@@ -95,7 +95,7 @@ export function determinePortfolioBadges(holdings: EngineHolding[], metrics: Por
   }
 
   if (leveragedWeight >= 60) {
-    badges.push({ id: "leverage", priority: 920, emoji: "🌊", title: "한강뷰 아니면 한강", description: "3배로 오르면 인생이 바뀝니다. 반대도 가능합니다." });
+    badges.push({ id: "leverage", priority: 920, emoji: "🌊", title: "오르막도 내리막도 3배속", description: "방향을 맞히면 빠르지만, 흔들림도 같이 커집니다." });
   } else if (leveragedWeight >= 40) {
     badges.push({ id: "leverage", priority: 900, emoji: "🔥", title: "변동성에 레버리지를 얹었습니다", description: "평범한 하루는 재미가 없습니다." });
   } else if (leveragedWeight >= 20) {
@@ -104,7 +104,7 @@ export function determinePortfolioBadges(holdings: EngineHolding[], metrics: Por
 
   if (top) {
     if (top.weight >= 70) badges.push({ id: "single_stock", priority: 820, emoji: "🎰", title: "사실상 주주가 아니라 동업자", description: "이 정도면 실적 발표 때 출근해야 합니다." });
-    else if (top.weight >= 50) badges.push({ id: "single_stock", priority: 800, emoji: "🎯", title: "분산투자는 패자의 변명", description: "맞으면 크게 맞고, 틀리면..." });
+    else if (top.weight >= 50) badges.push({ id: "single_stock", priority: 800, emoji: "🎯", title: "쏠림 경고등", description: "맞으면 크게 웃지만, 틀리면 꽤 크게 배웁니다." });
     else if (top.weight >= 40) badges.push({ id: "single_stock", priority: 780, emoji: "🎯", title: "한 우물 장인", description: "다른 종목은 눈에 들어오지 않습니다." });
     else if (top.weight >= 30) badges.push({ id: "single_stock", priority: 760, emoji: "🎯", title: "사랑하면 몰빵", description: "분산투자라는 단어를 아직 믿지 않습니다." });
   }
