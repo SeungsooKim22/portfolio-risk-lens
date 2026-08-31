@@ -78,3 +78,16 @@ Before SNS/public beta:
 - Every security record must have sector, region, asset type, volatility, beta, and stress assumptions.
 - Unknown positions should be rare and clearly handled.
 - Public copy must not claim full NASDAQ/KOSPI support until licensing and coverage are proven.
+
+## Current Generated Universe
+
+The first generated universe was built from Nasdaq Trader, Nasdaq screener, and KIND/KRX listed-company download samples.
+
+- Total generated records: 6,120
+- NASDAQ: 3,055
+- NYSE: 1,978
+- NYSE American: 258
+- KOSPI numeric common-code candidates: 828
+- BATS: 1
+
+These generated records are used as broad name-resolution and sector-default estimates. Hand-curated records in `data/securityMaster.ts` still override generated records for high-usage names and ETFs.

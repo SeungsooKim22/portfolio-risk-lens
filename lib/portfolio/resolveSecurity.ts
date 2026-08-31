@@ -2,6 +2,7 @@ import { aliases } from "../../data/aliases.ts";
 import { getFallbackSecurity, securityMaster } from "../../data/securityMaster.ts";
 import type { ResolvedPosition } from "../../types/portfolio.ts";
 import type { Security, SecurityResolver } from "../../types/security.ts";
+import { generatedSecurityMap, securityFromGeneratedTicker } from "./generatedSecurity.ts";
 
 export function normalizeSecurityName(value: string) {
   return value
@@ -70,9 +71,38 @@ export function resolveSecurity(rawName: string): Pick<ResolvedPosition, "ticker
     return { ticker: security.ticker, displayName: displayNameFor(rawName, security), security, resolution: "fuzzy" };
   }
 
+  const generatedTicker = findGeneratedTicker(rawName, normalizedUpper, normalized);
+  if (generatedTicker) {
+    const security = securityFromGeneratedTicker(generatedTicker);
+    if (security) {
+      return { ticker: security.ticker, displayName: displayNameFor(rawName, security), security, resolution: "generated" };
+    }
+  }
+
   const ticker = normalizedUpper || upper;
   const security = getFallbackSecurity(ticker, rawName);
   return { ticker, displayName: rawName || ticker, security, resolution: "fallback" };
+}
+
+function findGeneratedTicker(rawName: string, normalizedUpper: string, normalized: string) {
+  if (generatedSecurityMap.has(normalizedUpper)) return normalizedUpper;
+
+  const direct = [...generatedSecurityMap.values()].find((record) => {
+    const company = normalizeSecurityName(record.companyName);
+    return company === normalized || company.includes(normalized);
+  });
+  if (direct) return direct.ticker;
+
+  if (rawName.trim().length < 3) return null;
+  const fuzzy = [...generatedSecurityMap.values()]
+    .map((record) => ({ record, distance: editDistance(normalized, normalizeSecurityName(record.companyName)) }))
+    .filter(({ record, distance }) => {
+      const company = normalizeSecurityName(record.companyName);
+      return normalized.length >= 4 && company.length <= normalized.length + 8 && distance <= Math.max(1, Math.floor(company.length * 0.16));
+    })
+    .sort((a, b) => a.distance - b.distance || a.record.companyName.length - b.record.companyName.length)[0];
+
+  return fuzzy?.record.ticker ?? null;
 }
 
 function displayNameFor(rawName: string, security: Security) {

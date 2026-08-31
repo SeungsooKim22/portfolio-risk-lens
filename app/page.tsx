@@ -6,6 +6,7 @@ import { groupWeights } from "../lib/analytics/calculateFeatures";
 import { generateBadges } from "../lib/personality/generateBadges";
 import { generateCharacter } from "../lib/personality/generateCharacter";
 import { normalizeSecurityName, resolveSecurity } from "../lib/portfolio/resolveSecurity.ts";
+import { generatedSecurities } from "../lib/portfolio/generatedSecurity.ts";
 import { aliases } from "../data/aliases.ts";
 import { securityMaster } from "../data/securityMaster.ts";
 import type { PortfolioFeatures, RiskBreakdownItem, ScenarioResult } from "../types/analytics.ts";
@@ -77,10 +78,19 @@ const labels = {
     scoreWhy: "이 점수를 만든 이유",
     biggestReason: "가장 큰 이유",
     detail: "상세 분석",
+    formulaTitle: "점수 계산식",
+    formulaIntro: "각 항목을 0~100점으로 바꾼 뒤 가중평균합니다.",
+    formula: "총점 = 변동성 35% + 하방 위험 20% + 집중 위험 15% + 시장 민감도 10% + 레버리지 10% + 개별기업 위험 10%",
+    formulaThisScore: "이번 포트폴리오 계산",
+    dataConfidence: "데이터 신뢰도",
+    curatedData: "직접 검수",
+    estimatedData: "공식 목록 기반 추정",
+    unknownData: "미지원",
+    formulaNote: "직접 검수 종목은 개별 가정을 쓰고, 대량 목록에서 잡힌 종목은 섹터/시장 기준 추정값을 씁니다.",
     methodology: "리스크 점수는 어떻게 계산되나요?",
-    methodologyText: "변동성, 하방 위험, 종목 집중도, 시장 민감도, 레버리지, 개별기업 위험을 종합해 계산합니다. 미래 수익률을 예측하는 점수는 아닙니다.",
+    methodologyText: "변동성, 하방 위험, 종목 집중도, 시장 민감도, 레버리지, 개별기업 위험을 종합해 계산합니다. 직접 검수되지 않은 종목은 섹터별 기본값으로 추정합니다.",
     disclaimer: "재미와 참고를 위한 분석이며 투자 권유나 미래 수익률 예측이 아닙니다.",
-    unknown: "아직 지원 데이터에 없는 종목이에요. 아래 지원 데이터에서 확인하거나 티커를 다시 넣어주세요.",
+    unknown: "아직 지원 데이터에 없는 종목이에요. 회사명 대신 티커로 다시 넣어보세요.",
     missingWeight: "비중 하나가 비어 있어요. 저도 계산은 숫자가 있어야 합니다.",
     allocationLow: "아직 포트폴리오가 덜 찼어요.",
     allocationHigh: "포트폴리오가 100%를 넘었어요. 레버리지는 아직 입력 기능에 없습니다.",
@@ -135,10 +145,19 @@ const labels = {
     scoreWhy: "What made this score",
     biggestReason: "Biggest reason",
     detail: "Details",
+    formulaTitle: "Score formula",
+    formulaIntro: "Each component is normalized to 0-100, then combined as a weighted average.",
+    formula: "Score = volatility 35% + downside 20% + concentration 15% + market sensitivity 10% + leverage 10% + company-specific risk 10%",
+    formulaThisScore: "This portfolio",
+    dataConfidence: "Data confidence",
+    curatedData: "Curated",
+    estimatedData: "Estimated from public listings",
+    unknownData: "Unsupported",
+    formulaNote: "Curated names use individual assumptions. Broad-list names use sector and market defaults.",
     methodology: "How is the risk score calculated?",
-    methodologyText: "It combines volatility, downside risk, concentration, market sensitivity, leverage, and company-specific risk. It does not predict future returns.",
+    methodologyText: "It combines volatility, downside risk, concentration, market sensitivity, leverage, and company-specific risk. Non-curated names use sector-level defaults.",
     disclaimer: "For fun and educational reference only. Not investment advice or a return forecast.",
-    unknown: "This name is not in the supported dataset yet. Check the dataset below or try the ticker.",
+    unknown: "This name is not in the supported dataset yet. Try the ticker instead of the company name.",
     missingWeight: "One weight is missing. The math still needs numbers.",
     allocationLow: "The portfolio is not filled yet.",
     allocationHigh: "The portfolio is above 100%. Leverage is not an input feature here.",
@@ -187,9 +206,13 @@ const translations: Record<string, string> = {
   "Technology Tilt": "기술주 중심",
   "Dividend / Quality": "배당/퀄리티",
   "Technology Income": "기술주 인컴",
+  "Korea REIT": "한국 리츠",
+  "US REIT": "미국 리츠",
   Rates: "금리",
   Gold: "금",
   "Digital Assets": "디지털 자산",
+  "Real Estate": "부동산",
+  Utilities: "유틸리티",
   Unknown: "정보 부족",
   "United States": "미국",
   "South Korea": "한국",
@@ -512,6 +535,8 @@ export default function Home() {
             </div>
           </section>
 
+          <RiskFormulaPanel t={t} lang={lang} positions={normalized} breakdown={analysis.risk.breakdown} score={riskScore} />
+
           <section className="grid gap-5 md:grid-cols-3">
             <ExposurePanel title={t.allocation} data={assets} accent="#ff8a4c" />
             <ExposurePanel title={t.sectors} data={sectors} accent="#6fbf8f" />
@@ -747,18 +772,77 @@ function ScenarioTile({ scenario, lang }: { scenario: ScenarioResult; lang: Lang
   );
 }
 
+function RiskFormulaPanel({
+  t,
+  lang,
+  positions,
+  breakdown,
+  score,
+}: {
+  t: (typeof labels)[Lang];
+  lang: Lang;
+  positions: NormalizedPosition[];
+  breakdown: RiskBreakdownItem[];
+  score: number;
+}) {
+  const confidence = dataConfidence(positions);
+  return (
+    <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
+      <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <div>
+          <h2 className="text-xl font-black">{t.formulaTitle}</h2>
+          <p className="mt-2 text-sm font-bold leading-6 text-[#675c50]">{t.formulaIntro}</p>
+          <p className="mt-3 rounded-xl bg-[#fff0c9] p-3 text-sm font-black leading-6 text-[#46351f]">{t.formula}</p>
+          <p className="mt-3 text-xs font-bold leading-5 text-[#837363]">{t.formulaNote}</p>
+        </div>
+        <div className="rounded-2xl bg-white/70 p-4">
+          <p className="text-xs font-black text-[#756858]">{t.formulaThisScore}</p>
+          <p className="mt-1 text-3xl font-black">{score.toFixed(1)}</p>
+          <div className="mt-3 grid gap-2">
+            {breakdown.map((item) => (
+              <div key={item.key} className="flex items-center justify-between gap-3 text-xs font-black">
+                <span>{lang === "ko" ? item.labelKo : item.labelEn} {Math.round(item.weight * 100)}%</span>
+                <span>{item.score.toFixed(1)} × {item.weight.toFixed(2)} = {item.contribution.toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 border-t border-[#ead3ad] pt-3">
+            <p className="text-xs font-black text-[#756858]">{t.dataConfidence}</p>
+            <p className="mt-1 text-xs font-bold leading-5 text-[#675c50]">
+              {t.curatedData} {fmt(confidence.curated)} · {t.estimatedData} {fmt(confidence.generated)} · {t.unknownData} {fmt(confidence.unknown)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function buildSecurityOptions(): SecurityOption[] {
   const aliasMap = new Map<string, string[]>();
   Object.entries(aliases).forEach(([alias, ticker]) => {
     aliasMap.set(ticker, [...(aliasMap.get(ticker) ?? []), alias]);
   });
-  return Object.values(securityMaster).map((security) => ({
+  const generated = generatedSecurities().filter((security) => !securityMaster[security.ticker]);
+  return [...Object.values(securityMaster), ...generated].map((security) => ({
     ticker: security.ticker,
     companyName: security.companyName,
     exchange: security.exchange,
     aliases: aliasMap.get(security.ticker) ?? [],
     security,
   }));
+}
+
+function dataConfidence(positions: NormalizedPosition[]) {
+  return positions.reduce(
+    (acc, item) => {
+      if (item.resolution === "fallback" || item.security.sector === "Unknown") acc.unknown += item.weight;
+      else if (item.resolution === "generated") acc.generated += item.weight;
+      else acc.curated += item.weight;
+      return acc;
+    },
+    { curated: 0, generated: 0, unknown: 0 },
+  );
 }
 
 function searchSecurities(query: string, options: SecurityOption[], recentTickers: string[]) {

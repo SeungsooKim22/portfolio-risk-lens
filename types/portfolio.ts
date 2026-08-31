@@ -10,7 +10,7 @@ export type ResolvedPosition = PortfolioInputLine & {
   ticker: string;
   displayName: string;
   security: Security;
-  resolution: "local" | "alias" | "fuzzy" | "fallback";
+  resolution: "local" | "alias" | "fuzzy" | "generated" | "fallback";
 };
 
 export type NormalizedPosition = ResolvedPosition & {

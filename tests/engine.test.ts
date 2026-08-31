@@ -150,6 +150,14 @@ test("ETF-heavy user portfolio resolves WMT SCHD JEPQ and avoids single-stock tr
   assert.ok(analysis.risk.score < 45);
 });
 
+test("generated public listing universe resolves long-tail US and KOSPI names", () => {
+  const { analysis } = summarize("AAOI 25\nYUM 25\n케이뱅크 25\n서울보증보험 25");
+  assert.equal(analysis.portfolio.unknownWeight, 0);
+  assert.deepEqual(analysis.portfolio.positions.map((item) => item.resolution), ["generated", "generated", "generated", "generated"]);
+  assert.deepEqual(analysis.portfolio.positions.map((item) => item.ticker), ["AAOI", "YUM", "279570", "031210"]);
+  assert.ok(analysis.portfolio.positions.every((item) => item.security.sector && item.security.sector !== "Unknown"));
+});
+
 test("capture parser extracts percent rows from brokerage-like text", () => {
   const rows = parseCaptureText("QQQ 48%\nSPYM 19.7%\n삼성전자 17.6%\n하이닉스 11.4%\n수익률 3.2%");
   assert.deepEqual(rows.map((row) => row.name), ["QQQ", "SPYM", "삼성전자", "하이닉스"]);
