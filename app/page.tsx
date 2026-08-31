@@ -340,7 +340,7 @@ export default function Home() {
         <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
           <header className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="grid h-11 w-11 place-items-center rounded-full bg-[#1e211b] text-sm font-black text-[#ffc767]">PRL</div>
+              <AtomLogo />
               <div>
                 <p className="text-sm font-black">{t.brand}</p>
                 <p className="text-xs font-bold text-[#796d5e]">{t.eyebrow}</p>
@@ -353,9 +353,6 @@ export default function Home() {
           </header>
 
           <section className="grid gap-4">
-            <div className="inline-flex w-fit rotate-[-1deg] rounded-full bg-[#ffd982] px-4 py-2 text-xs font-black text-[#362816] shadow-[4px_4px_0_#1e211b]">
-              82.4 · {lang === "ko" ? "브레이크 없는 반도체 신봉자" : "No-brakes chip believer"}
-            </div>
             <div>
               <h1 className="max-w-xl text-4xl font-black leading-[1.05] tracking-normal sm:text-5xl">{t.headline}</h1>
               <p className="mt-4 max-w-xl text-base font-bold leading-7 text-[#655a4d]">{t.subhead}</p>
@@ -559,6 +556,20 @@ export default function Home() {
         </div>
       </section>
     </main>
+  );
+}
+
+function AtomLogo() {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative h-11 w-11 shrink-0 rounded-full border-2 border-[#62b783] bg-white shadow-[0_3px_0_#b7dec3]"
+    >
+      <span className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#24a35a]" />
+      <span className="absolute left-[8px] top-[19px] h-[5px] w-[25px] rounded-full border-2 border-[#24a35a]" />
+      <span className="absolute left-[8px] top-[19px] h-[5px] w-[25px] rotate-[58deg] rounded-full border-2 border-[#24a35a]" />
+      <span className="absolute left-[8px] top-[19px] h-[5px] w-[25px] rotate-[-58deg] rounded-full border-2 border-[#24a35a]" />
+    </div>
   );
 }
 

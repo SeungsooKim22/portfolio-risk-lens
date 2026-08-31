@@ -106,6 +106,8 @@ test("release copy avoids unclear or unsafe meme wording", () => {
     "패자의 변명",
     "목숨 두 개인",
     "칼 한센의 아들",
+    "IR ",
+    "IR보다",
     "Server-scented",
     "Smells like servers",
     "Penthouse or pavement",

@@ -56,7 +56,7 @@ const companyProfiles: Record<string, { emoji: string; title: string; descriptio
   BRK: { emoji: "🥤", title: "버핏의 애제자", description: "코카콜라를 마시며 복리를 기다립니다." },
   "BRK.B": { emoji: "🥤", title: "버핏의 애제자", description: "코카콜라를 마시며 복리를 기다립니다." },
   PLTR: { emoji: "🕵️", title: "알렉스 카프의 비밀요원", description: "무슨 회사인지 몰라도 일단 미래 같긴 합니다." },
-  ABCL: { emoji: "🧬", title: "AbCellera 장기 관찰자", description: "이 정도면 AbCellera IR보다 회사를 많이 봅니다." },
+  ABCL: { emoji: "🧬", title: "AbCellera 장기 관찰자", description: "이 정도면 AbCellera 소식을 누구보다 많이 봅니다." },
   "005930": { emoji: "📱", title: "삼성전자 명예 임원", description: "반도체 사이클을 가족 행사처럼 챙깁니다." },
   "000660": { emoji: "🧠", title: "HBM 신봉자", description: "메모리 가격표가 내 심박수를 결정합니다." },
 };

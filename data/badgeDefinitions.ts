@@ -13,7 +13,7 @@ export const badgeDefinitions: BadgeDefinition[] = [
     },
     variants: [
       { emoji: "🧬", ko: { title: "회사와 운명공동체", description: "이 정도면 실적 발표 때 같이 긴장합니다." }, en: { title: "Company soulbound", description: "Earnings day is basically personal." } },
-      { emoji: "📞", ko: { title: "IR 전화 받아도 됩니다", description: "회사 뉴스가 내 일정표에 들어왔습니다." }, en: { title: "IR might know you", description: "Company news has entered the calendar." } },
+      { emoji: "📞", ko: { title: "회사 소식 알림 켜도 됩니다", description: "회사 뉴스가 내 일정표에 들어왔습니다." }, en: { title: "Company-news regular", description: "Company news has entered the calendar." } },
       { emoji: "🪪", ko: { title: "명예 임직원", description: "주주라기보다 동료에 가까운 비중입니다." }, en: { title: "Honorary employee", description: "This is closer to coworker than holder." } },
     ],
   },

@@ -43,7 +43,7 @@ export const memeProfiles: Record<string, MemeProfile> = {
     figure: "알렉스 카프",
     concentrationTitles: {
       high: ["알렉스 카프의 비밀요원"],
-      extreme: ["팔란티어 IR보다 미래를 믿습니다"],
+      extreme: ["팔란티어의 미래를 누구보다 믿습니다"],
     },
   },
   abcl: {
