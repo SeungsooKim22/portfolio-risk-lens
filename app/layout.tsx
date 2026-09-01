@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   description:
     "Enter your portfolio, get a serious risk score, and discover your investing personality.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/reactor-logo.png",
+    shortcut: "/reactor-logo.png",
   },
 };
 
