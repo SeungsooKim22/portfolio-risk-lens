@@ -359,7 +359,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-4 shadow-[7px_7px_0_#1e211b]">
+          <section className="min-w-0 overflow-hidden rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-3 shadow-[4px_4px_0_#1e211b] sm:p-4 sm:shadow-[7px_7px_0_#1e211b]">
             <div className="rounded-xl bg-[#fff0c9] p-3">
               <p className="text-sm font-black">{t.riskMeaningTitle}</p>
               <p className="mt-1 text-xs font-bold leading-5 text-[#685c4b]">{t.riskMeaning}</p>
@@ -367,7 +367,7 @@ export default function Home() {
 
             <div className="mt-4 grid gap-3">
               <p className="text-lg font-black">{t.inputTitle}</p>
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(84px,120px)_74px]">
+              <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(84px,120px)_74px]">
                 <label className="grid min-w-0 gap-1 text-xs font-black text-[#655a4d]">
                   {t.searchLabel}
                   <input
@@ -406,15 +406,16 @@ export default function Home() {
                 </button>
               </div>
 
-              <SuggestionStrip
-                title={query.trim() ? t.searchLabel : recentTickers.length > 0 ? t.recent : t.popular}
-                suggestions={suggestions}
-                query={query}
-                onPick={(option) => {
-                  setQuery(query.trim() ? query.trim() : option.ticker);
-                  weightRef.current?.focus();
-                }}
-              />
+                <SuggestionStrip
+                  title={query.trim() ? t.searchLabel : recentTickers.length > 0 ? t.recent : t.popular}
+                  suggestions={suggestions}
+                  query={query}
+                  lang={lang}
+                  onPick={(option) => {
+                    setQuery(query.trim() ? query.trim() : option.ticker);
+                    weightRef.current?.focus();
+                  }}
+                />
 
               <AllocationMeter total={draftTotal} t={t} />
               {hasUnknownDraft && <p className="text-xs font-black text-[#af4e35]">{t.unknown}</p>}
@@ -436,7 +437,7 @@ export default function Home() {
                   {draftRows.map((row) => {
                     const resolved = resolveSecurity(row.rawName);
                     return (
-                      <div key={row.id} className="grid grid-cols-[1fr_92px_52px] items-center gap-2 border-b border-[#f1dfc1] px-3 py-2 last:border-b-0">
+                      <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_72px_40px] items-center gap-2 border-b border-[#f1dfc1] px-2 py-2 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_92px_52px] sm:px-3">
                         <div className="min-w-0">
                           <input
                             value={row.rawName}
@@ -477,7 +478,7 @@ export default function Home() {
 
               {screenshotImportEnabled && <p className="text-xs font-bold text-[#796d5e]">{t.experimentalImport}</p>}
 
-              <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+              <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <button type="button" onClick={analyzeDraft} className={`rounded-xl px-4 py-3 text-sm font-black transition ${canAnalyze ? "bg-[#ff8a4c] text-[#1e211b] shadow-[4px_4px_0_#1e211b] hover:translate-y-[-1px]" : "bg-[#e5d4ba] text-[#7b6e5d]"}`}>
                   {t.analyze}
                 </button>
@@ -574,31 +575,55 @@ function SuggestionStrip({
   title,
   suggestions,
   query,
+  lang,
   onPick,
 }: {
   title: string;
   suggestions: SecurityOption[];
   query: string;
+  lang: Lang;
   onPick: (option: SecurityOption) => void;
 }) {
   if (suggestions.length === 0) return null;
   return (
-    <div>
+    <div className="min-w-0 max-w-full overflow-hidden">
       <p className="mb-2 text-xs font-black text-[#796d5e]">{title}</p>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {suggestions.slice(0, query.trim() ? 8 : 10).map((option) => (
-          <button
-            key={`${option.ticker}-${option.companyName}`}
-            type="button"
-            onClick={() => onPick(option)}
-            className="shrink-0 rounded-full border border-[#ead3ad] bg-white px-3 py-2 text-left text-xs font-black text-[#2a271f] transition hover:border-[#ff8a4c]"
-          >
-            {option.ticker} <span className="font-bold text-[#827463]">{option.companyName}</span>
-          </button>
-        ))}
+      <div className="max-w-full overflow-x-auto pb-1">
+        <div className="flex w-max max-w-none gap-2">
+          {suggestions.slice(0, query.trim() ? 8 : 10).map((option) => {
+            const label = suggestionLabel(option, lang);
+            return (
+              <button
+                key={`${option.ticker}-${option.companyName}`}
+                type="button"
+                onClick={() => onPick(option)}
+                className="max-w-[260px] shrink-0 rounded-full border border-[#ead3ad] bg-white px-3 py-2 text-left text-xs font-black text-[#2a271f] transition hover:border-[#ff8a4c]"
+              >
+                <span>{label.primary}</span> <span className="font-bold text-[#827463]">{label.secondary}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
+}
+
+function suggestionLabel(option: SecurityOption, lang: Lang) {
+  const isKoreanTicker = /^\d{6}$/.test(option.ticker);
+  if (lang === "ko" && isKoreanTicker) {
+    return { primary: koreanDisplayName(option), secondary: option.ticker };
+  }
+  return { primary: option.ticker, secondary: option.companyName };
+}
+
+function koreanDisplayName(option: SecurityOption) {
+  const normalizedAliases = option.aliases.map((alias) => alias.trim()).filter(Boolean);
+  const hangulAlias = normalizedAliases.find((alias) => /[가-힣]/.test(alias));
+  if (hangulAlias) return hangulAlias;
+  if (option.ticker === "005930") return "삼성전자";
+  if (option.ticker === "000660") return "SK하이닉스";
+  return option.companyName;
 }
 
 function AllocationMeter({ total, t }: { total: number; t: (typeof labels)[Lang] }) {
@@ -610,10 +635,10 @@ function AllocationMeter({ total, t }: { total: number; t: (typeof labels)[Lang]
         ? t.complete
         : `${fmt(total - 100)} ${t.over}`;
   return (
-    <div className="rounded-xl bg-[#1e211b] p-3 text-white">
-      <div className="flex items-center justify-between gap-3">
+    <div className="min-w-0 rounded-xl bg-[#1e211b] p-3 text-white">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-black">{t.currentAllocation}</p>
-        <p className="text-sm font-black">{total.toFixed(1)} / 100%</p>
+        <p className="text-sm font-black tabular-nums">{total.toFixed(1)} / 100%</p>
       </div>
       <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/20">
         <div className={`h-full rounded-full ${total > 102 ? "bg-[#ff5e45]" : total >= 98 ? "bg-[#78d88f]" : "bg-[#ffd36f]"}`} style={{ width: `${Math.min(100, clamped)}%` }} />
@@ -651,7 +676,7 @@ function ShareCard({
   onShare: () => void;
 }) {
   return (
-    <section className="min-w-0 overflow-hidden rounded-[24px] border-2 border-[#1e211b] p-4 shadow-[10px_10px_0_#1e211b]" style={{ backgroundColor: tone.card }}>
+    <section className="min-w-0 overflow-hidden rounded-[24px] border-2 border-[#1e211b] p-4 shadow-[4px_4px_0_#1e211b] sm:shadow-[8px_8px_0_#1e211b]" style={{ backgroundColor: tone.card }}>
       <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_180px]">
         <div className="min-w-0">
           <div className="flex min-w-0 items-start justify-between gap-4">
@@ -663,7 +688,7 @@ function ShareCard({
               </div>
               <p className="mt-2 text-sm font-black" style={{ color: tone.muted }}>{t.lowerSafer}</p>
             </div>
-            <div className="grid h-24 w-24 shrink-0 rotate-[3deg] place-items-center rounded-[24px] border-2 border-[#1e211b] text-5xl shadow-[5px_5px_0_#1e211b] sm:h-32 sm:w-32 sm:rounded-[28px] sm:text-6xl" style={{ backgroundColor: mascot.bg }}>
+            <div className="grid h-20 w-20 shrink-0 rotate-[3deg] place-items-center rounded-[20px] border-2 border-[#1e211b] text-4xl shadow-[4px_4px_0_#1e211b] sm:h-32 sm:w-32 sm:rounded-[28px] sm:text-6xl" style={{ backgroundColor: mascot.bg }}>
               {mascot.icon}
             </div>
           </div>
