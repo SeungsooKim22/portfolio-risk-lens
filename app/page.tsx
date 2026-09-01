@@ -445,7 +445,7 @@ export default function Home() {
                             className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm font-black outline-none focus:border-[#ff8a4c] focus:bg-[#fffaf1]"
                           />
                           <p className="truncate px-2 text-[11px] font-bold text-[#817363]">
-                            {resolved.resolution === "fallback" ? t.unknown : `${resolved.ticker} · ${resolved.security.companyName}`}
+                            {resolved.resolution === "fallback" ? t.unknown : securityDisplayName(resolved.security, lang)}
                           </p>
                         </div>
                         <input
@@ -525,7 +525,7 @@ export default function Home() {
             <div className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
               <h2 className="text-xl font-black">{t.detail}</h2>
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <MiniMetric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} />
+                <MiniMetric label={t.largest} value={topHolding ? `${positionDisplayName(topHolding, lang)} ${fmt(topHolding.weight)}` : "-"} />
                 <MiniMetric label={t.concentration} value={concentrationLabel(analysis.features, lang)} />
                 <MiniMetric label={t.volatility} value={fmt(analysis.features.annualizedVolatility)} />
                 <MiniMetric label={t.effectiveN} value={analysis.features.effectiveNumberOfPositions.toFixed(1)} />
@@ -599,7 +599,7 @@ function SuggestionStrip({
                 onClick={() => onPick(option)}
                 className="max-w-[260px] shrink-0 rounded-full border border-[#ead3ad] bg-white px-3 py-2 text-left text-xs font-black text-[#2a271f] transition hover:border-[#ff8a4c]"
               >
-                <span>{label.primary}</span> <span className="font-bold text-[#827463]">{label.secondary}</span>
+                <span>{label.primary}</span>{label.secondary && <span className="font-bold text-[#827463]"> {label.secondary}</span>}
               </button>
             );
           })}
@@ -612,18 +612,26 @@ function SuggestionStrip({
 function suggestionLabel(option: SecurityOption, lang: Lang) {
   const isKoreanTicker = /^\d{6}$/.test(option.ticker);
   if (lang === "ko" && isKoreanTicker) {
-    return { primary: koreanDisplayName(option), secondary: option.ticker };
+    return { primary: securityDisplayName(option.security, lang, option.aliases), secondary: "" };
   }
   return { primary: option.ticker, secondary: option.companyName };
 }
 
-function koreanDisplayName(option: SecurityOption) {
-  const normalizedAliases = option.aliases.map((alias) => alias.trim()).filter(Boolean);
+function securityDisplayName(security: Security, lang: Lang, knownAliases?: string[]) {
+  if (lang !== "ko" || !/^\d{6}$/.test(security.ticker)) return security.companyName;
+  const normalizedAliases = knownAliases ?? Object.entries(aliases)
+    .filter(([, ticker]) => ticker === security.ticker)
+    .map(([alias]) => alias);
   const hangulAlias = normalizedAliases.find((alias) => /[가-힣]/.test(alias));
   if (hangulAlias) return hangulAlias;
-  if (option.ticker === "005930") return "삼성전자";
-  if (option.ticker === "000660") return "SK하이닉스";
-  return option.companyName;
+  if (security.ticker === "005930") return "삼성전자";
+  if (security.ticker === "000660") return "SK하이닉스";
+  return security.companyName;
+}
+
+function positionDisplayName(position: NormalizedPosition, lang: Lang) {
+  if (!position.security || lang !== "ko") return position.displayName;
+  return securityDisplayName(position.security, lang);
 }
 
 function AllocationMeter({ total, t }: { total: number; t: (typeof labels)[Lang] }) {
@@ -715,7 +723,7 @@ function ShareCard({
 
       <div className="mt-5 grid min-w-0 gap-3 border-t-2 border-[#1e211b]/15 pt-4 sm:grid-cols-3">
         <MiniMetric label={t.keyInsight} value={insight} />
-        <MiniMetric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} />
+        <MiniMetric label={t.largest} value={topHolding ? `${positionDisplayName(topHolding, lang)} ${fmt(topHolding.weight)}` : "-"} />
         <MiniMetric label={t.concentration} value={concentrationLabel(features, lang)} />
       </div>
 
@@ -965,7 +973,7 @@ function keyInsight(positions: NormalizedPosition[], features: PortfolioFeatures
   if (features.leveragedExposure >= 35) return lang === "ko" ? "변동성에 부스터가 달렸습니다." : "Volatility has a booster attached.";
   if (features.dominantTheme === "semiconductor" && features.thematicConcentration >= 55) return lang === "ko" ? "반도체에 꽤 진심이네요." : "This portfolio really believes in chips.";
   if (features.dominantTheme === "biotech" && features.thematicConcentration >= 45) return lang === "ko" ? "임상 발표가 계좌 이벤트입니다." : "Clinical readouts matter here.";
-  if (top && top.weight >= 45) return lang === "ko" ? `${top.displayName}가 기침하면 계좌가 감기에 걸립니다.` : `If ${top.displayName} sneezes, the account catches a cold.`;
+  if (top && top.weight >= 45) return lang === "ko" ? `${positionDisplayName(top, lang)}가 기침하면 계좌가 감기에 걸립니다.` : `If ${top.displayName} sneezes, the account catches a cold.`;
   if (features.broadEtfExposure >= 70 && riskScore < 35) return lang === "ko" ? "재미는 조금 없는데 계좌는 오래 삽니다." : "Less dramatic, probably more durable.";
   if (features.defensiveTilt >= 45) return lang === "ko" ? "수익 인증보다 생존 인증 쪽입니다." : "Survival has a seat at the table.";
   return lang === "ko" ? "선은 지키지만 욕심도 있습니다." : "Balanced, but not asleep.";
@@ -1089,7 +1097,7 @@ function drawShareCard({
 
   const stats = [
     [t.keyInsight, insight],
-    [t.largest, topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"],
+    [t.largest, topHolding ? `${positionDisplayName(topHolding, lang)} ${fmt(topHolding.weight)}` : "-"],
     [t.concentration, concentrationLabel(features, lang)],
   ];
   stats.forEach(([label, value], index) => {
