@@ -336,8 +336,8 @@ export default function Home() {
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#fff5e6] text-[#1e211b]">
-      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-7 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:py-7">
-        <div className="min-w-0 flex flex-col gap-5 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
+      <section className="mx-auto grid min-h-screen w-full max-w-[1440px] gap-7 px-4 py-5 md:px-6 min-[2100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] min-[2100px]:py-7">
+        <div className="min-w-0 flex flex-col gap-5 min-[2100px]:sticky min-[2100px]:top-6 min-[2100px]:h-[calc(100vh-48px)]">
           <header className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AtomLogo />
