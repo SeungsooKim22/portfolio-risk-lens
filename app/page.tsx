@@ -335,9 +335,9 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#fff5e6] text-[#1e211b]">
-      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-7 px-4 py-5 md:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:py-7">
-        <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
+    <main className="min-h-screen overflow-x-hidden bg-[#fff5e6] text-[#1e211b]">
+      <section className="mx-auto grid min-h-screen w-full max-w-7xl gap-7 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:py-7">
+        <div className="min-w-0 flex flex-col gap-5 lg:sticky lg:top-6 lg:h-[calc(100vh-48px)]">
           <header className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AtomLogo />
@@ -367,8 +367,8 @@ export default function Home() {
 
             <div className="mt-4 grid gap-3">
               <p className="text-lg font-black">{t.inputTitle}</p>
-              <div className="grid gap-2 sm:grid-cols-[1fr_120px_74px]">
-                <label className="grid gap-1 text-xs font-black text-[#655a4d]">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(84px,120px)_74px]">
+                <label className="grid min-w-0 gap-1 text-xs font-black text-[#655a4d]">
                   {t.searchLabel}
                   <input
                     ref={searchRef}
@@ -381,10 +381,10 @@ export default function Home() {
                       }
                     }}
                     placeholder={t.searchPlaceholder}
-                    className="h-12 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
+                    className="h-12 min-w-0 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
                   />
                 </label>
-                <label className="grid gap-1 text-xs font-black text-[#655a4d]">
+                <label className="grid min-w-0 gap-1 text-xs font-black text-[#655a4d]">
                   {t.weightLabel}
                   <input
                     ref={weightRef}
@@ -398,7 +398,7 @@ export default function Home() {
                       }
                     }}
                     placeholder={t.weightPlaceholder}
-                    className="h-12 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
+                    className="h-12 min-w-0 rounded-xl border-2 border-[#d9c29f] bg-white px-3 text-sm font-black outline-none transition focus:border-[#ff8a4c] focus:ring-4 focus:ring-[#ff8a4c]/20"
                   />
                 </label>
                 <button type="button" onClick={() => addHolding()} className="self-end rounded-xl bg-[#1e211b] px-3 py-3 text-sm font-black text-white transition hover:translate-y-[-1px]">
@@ -492,7 +492,7 @@ export default function Home() {
           </section>
         </div>
 
-        <div className="grid gap-5">
+        <div className="grid min-w-0 gap-5">
           <ShareCard
             t={t}
             lang={lang}
@@ -508,7 +508,7 @@ export default function Home() {
             onShare={shareImage}
           />
 
-          <section className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+          <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
             <div className="rounded-[18px] border-2 border-[#1e211b] bg-[#fffdf8] p-5">
               <h2 className="text-xl font-black">{t.scoreWhy}</h2>
               <p className="mt-2 text-sm font-bold text-[#675c50]">
@@ -651,19 +651,19 @@ function ShareCard({
   onShare: () => void;
 }) {
   return (
-    <section className="rounded-[24px] border-2 border-[#1e211b] p-4 shadow-[10px_10px_0_#1e211b]" style={{ backgroundColor: tone.card }}>
-      <div className="grid gap-5 lg:grid-cols-[1fr_180px]">
-        <div>
-          <div className="flex items-start justify-between gap-4">
-            <div>
+    <section className="min-w-0 overflow-hidden rounded-[24px] border-2 border-[#1e211b] p-4 shadow-[10px_10px_0_#1e211b]" style={{ backgroundColor: tone.card }}>
+      <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_180px]">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-start justify-between gap-4">
+            <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-normal" style={{ color: tone.muted }}>{t.brand}</p>
               <div className="mt-3 flex items-end gap-3">
-                <h2 className="text-7xl font-black leading-none tracking-normal" style={{ color: tone.ink }}>{riskScore.toFixed(1)}</h2>
-                <p className="pb-2 text-sm font-black" style={{ color: tone.accent }}>/100 {t.score}</p>
+                <h2 className="text-6xl font-black leading-none tracking-normal sm:text-7xl" style={{ color: tone.ink }}>{riskScore.toFixed(1)}</h2>
+                <p className="pb-2 text-sm font-black leading-tight" style={{ color: tone.accent }}>/100<br className="sm:hidden" /> {t.score}</p>
               </div>
               <p className="mt-2 text-sm font-black" style={{ color: tone.muted }}>{t.lowerSafer}</p>
             </div>
-            <div className="grid h-32 w-32 rotate-[3deg] place-items-center rounded-[28px] border-2 border-[#1e211b] text-6xl shadow-[5px_5px_0_#1e211b]" style={{ backgroundColor: mascot.bg }}>
+            <div className="grid h-24 w-24 shrink-0 rotate-[3deg] place-items-center rounded-[24px] border-2 border-[#1e211b] text-5xl shadow-[5px_5px_0_#1e211b] sm:h-32 sm:w-32 sm:rounded-[28px] sm:text-6xl" style={{ backgroundColor: mascot.bg }}>
               {mascot.icon}
             </div>
           </div>
@@ -672,15 +672,15 @@ function ShareCard({
 
           <div className="mt-6">
             <p className="text-xs font-black uppercase tracking-normal" style={{ color: tone.accent }}>{t.personality}</p>
-            <h3 className="mt-2 max-w-2xl text-4xl font-black leading-tight tracking-normal" style={{ color: tone.ink }}>{personality.name}</h3>
+            <h3 className="mt-2 max-w-2xl text-3xl font-black leading-tight tracking-normal sm:text-4xl" style={{ color: tone.ink }}>{personality.name}</h3>
             <p className="mt-3 max-w-2xl text-lg font-black leading-7" style={{ color: tone.muted }}>&quot;{personality.quote}&quot;</p>
           </div>
         </div>
 
-        <div className="grid content-start gap-3">
-          <p className="text-xs font-black uppercase tracking-normal" style={{ color: tone.accent }}>{t.badges}</p>
+        <div className="grid min-w-0 content-start gap-3 sm:grid-cols-2 2xl:grid-cols-1">
+          <p className="text-xs font-black uppercase tracking-normal sm:col-span-2 2xl:col-span-1" style={{ color: tone.accent }}>{t.badges}</p>
           {badges.map((badge) => (
-            <div key={badge.id} className="rounded-2xl border-2 border-[#1e211b] bg-white/75 p-3">
+            <div key={badge.id} className="min-w-0 rounded-2xl border-2 border-[#1e211b] bg-white/75 p-3">
               <p className="text-sm font-black" style={{ color: tone.ink }}>{badge.emoji} {badge.title}</p>
               <p className="mt-1 text-xs font-bold leading-5" style={{ color: tone.muted }}>{badge.description}</p>
             </div>
@@ -688,7 +688,7 @@ function ShareCard({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 border-t-2 border-[#1e211b]/15 pt-4 sm:grid-cols-3">
+      <div className="mt-5 grid min-w-0 gap-3 border-t-2 border-[#1e211b]/15 pt-4 sm:grid-cols-3">
         <MiniMetric label={t.keyInsight} value={insight} />
         <MiniMetric label={t.largest} value={topHolding ? `${topHolding.displayName} ${fmt(topHolding.weight)}` : "-"} />
         <MiniMetric label={t.concentration} value={concentrationLabel(features, lang)} />
